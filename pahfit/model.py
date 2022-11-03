@@ -4,7 +4,10 @@ import copy
 from astropy.modeling.fitting import LevMarLSQFitter
 from matplotlib import pyplot as plt
 import numpy as np
+import matplotlib as mpl
 
+from pahfit.component_models import S07_attenuation
+from pahfit.helpers import find_packfile
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
 from pahfit import instrument
@@ -310,23 +313,173 @@ class Model:
         """
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
-        # Always use the current FWHM here (use_instrument_fwhm would
-        # overwrite the fitted value in the instrument overlap regions!)
-        astropy_model = self._construct_astropy_model(
-            inst, z, use_instrument_fwhm=False
-        )
-
         enough_samples = max(1000, len(spec.wavelength))
+        x_mod = np.logspace(np.log10(min(xz)), np.log10(max(xz)), enough_samples)
 
         fig, axs = plt.subplots(
             ncols=1,
             nrows=2,
-            figsize=(15, 10),
+            figsize=(10, 10),
             gridspec_kw={"height_ratios": [3, 1]},
             sharex=True,
         )
-        PAHFITBase.plot(axs, xz, yz, uncz, astropy_model, model_samples=enough_samples)
+
+        # spectrum and best fit model
+        ax = axs[0]
+        ax.set_yscale("linear")
+        ax.set_xscale("log")
+        ax.minorticks_on()
+        ax.tick_params(
+            axis="both", which="major", top="on", right="on", direction="in", length=10
+        )
+        ax.tick_params(
+            axis="both", which="minor", top="on", right="on", direction="in", length=5
+        )
+
+        ext_model = None
+        has_att = "attenuation" in self.features["kind"]
+        has_abs = "absorption" in self.features["kind"]
+        if has_att:
+            row = self.features[self.features["kind"] == "attenuation"][0]
+            tau = row["tau"][0]
+            ext_model = S07_attenuation(tau_sil=tau)(x_mod)
+
+        if has_abs:
+            raise NotImplementedError(
+                "plotting absorption features not implemented yet"
+            )
+
+        if has_att or has_abs:
+            ax_att = ax.twinx()  # axis for plotting the extinction curve
+            ax_att.tick_params(which="minor", direction="in", length=5)
+            ax_att.tick_params(which="major", direction="in", length=10)
+            ax_att.minorticks_on()
+            ax_att.plot(x_mod, ext_model, "k--", alpha=0.5)
+            ax_att.set_ylabel("Attenuation")
+            ax_att.set_ylim(0, 1.1)
+        else:
+            ext_model = np.ones(len(x_mod))
+
+        # Define legend lines
+        Leg_lines = [
+            mpl.lines.Line2D([0], [0], color="k", linestyle="--", lw=2),
+            mpl.lines.Line2D([0], [0], color="#FE6100", lw=2),
+            mpl.lines.Line2D([0], [0], color="#648FFF", lw=2, alpha=0.5),
+            mpl.lines.Line2D([0], [0], color="#DC267F", lw=2, alpha=0.5),
+            mpl.lines.Line2D([0], [0], color="#785EF0", lw=2, alpha=1),
+            mpl.lines.Line2D([0], [0], color="#FFB000", lw=2, alpha=0.5),
+        ]
+
+        cont_model = None
+        if "dust_continuum" in self.features["kind"]:
+            cont_model = self.sub_model(inst, z, kind="dust_continuum")
+            cont_y = cont_model(x_mod)
+            # one plot for every component
+            for c in cont_model:
+                ax.plot(x_mod, c(x_mod) * ext_model / x_mod, "#FFB000", alpha=0.5)
+            # plot for total continuum?
+
+        if "starlight" in self.features["kind"]:
+            star_cont_model = self.sub_model(inst, z, kind="starlight")
+            if cont_model is not None:
+                cont_model += star_cont_model
+            else:
+                cont_model = star_cont_model
+
+        # total continuum
+        ax.plot(x_mod, cont_y * ext_model / x_mod, "#785EF0", alpha=1)
+
+        if "dust_feature" in self.features["kind"]:
+            # now plot the dust bands and lines
+            features_model = self.sub_model(inst, z, kind="dust_feature")
+            for c in features_model:
+                ax.plot(
+                    x_mod,
+                    (cont_y + c(x_mod)) * ext_model / x_mod,
+                    "#648FFF",
+                    alpha=0.5,
+                )
+
+        if "line" in self.features["kind"]:
+            lines_model = self.sub_model(inst, z, kind="line")
+            for c in lines_model:
+                ax.plot(
+                    x_mod,
+                    (cont_y + c(x_mod)) * ext_model / x_mod,
+                    "#DC267F",
+                    alpha=0.5,
+                )
+
+        # total model
+        model = self._construct_astropy_model(inst, z, use_instrument_fwhm=False)
+        ax.plot(x_mod, model(x_mod) / x_mod, "#FE6100", alpha=1)
+
+        # data
+        ax.errorbar(
+            xz,
+            yz / xz,
+            yerr=uncz / xz,
+            fmt="o",
+            markeredgecolor="k",
+            markerfacecolor="none",
+            ecolor="k",
+            elinewidth=0.2,
+            capsize=0.5,
+            markersize=6,
+        )
+
+        ax.set_ylim(0)
+        ax.set_ylabel(r"$\nu F_{\nu}$")
+
+        ax.legend(
+            Leg_lines,
+            [
+                "S07_attenuation",
+                "Spectrum Fit",
+                "Dust Features",
+                r"Atomic and $H_2$ Lines",
+                "Total Continuum Emissions",
+                "Continuum Components",
+            ],
+            prop={"size": 10},
+            loc="best",
+            facecolor="white",
+            framealpha=1,
+            ncol=3,
+        )
+
+        # residuals, lower sub-figure
+        res = (yz - model(xz)) / xz
+        std = np.std(res)
+        ax = axs[1]
+
+        ax.set_yscale("linear")
+        ax.set_xscale("log")
+        ax.tick_params(
+            axis="both", which="major", top="on", right="on", direction="in", length=10
+        )
+        ax.tick_params(
+            axis="both", which="minor", top="on", right="on", direction="in", length=5
+        )
+        ax.minorticks_on()
+
+        # Custom X axis ticks
+        ax.xaxis.set_ticks(
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 20, 25, 30, 40]
+        )
+
+        ax.axhline(0, linestyle="--", color="gray", zorder=0)
+        ax.plot(xz, res, "ko-", fillstyle="none", zorder=1)
+        scalefac_resid = 2
+        ax.set_ylim(-scalefac_resid * std, scalefac_resid * std)
+        ax.set_xlim(np.floor(np.amin(xz)), np.ceil(np.amax(xz)))
+        ax.set_xlabel(r"$\lambda$ [$\mu m$]")
+        ax.set_ylabel("Residuals [%]")
+
+        # scalar x-axis marks
+        ax.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
         fig.subplots_adjust(hspace=0)
+        return fig
 
     def copy(self):
         """Copy the model.
