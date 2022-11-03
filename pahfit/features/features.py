@@ -344,7 +344,7 @@ class Features(Table):
             Set this to False to undo the mask
 
         """
-        row = self.loc[name]
+        row = self[self['name'] == name][0]
         relevant_params = self._kind_params[row['kind']]
         for col_name in relevant_params:
             if col_name in self._no_bounds:
