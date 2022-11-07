@@ -4,9 +4,11 @@ import copy
 from astropy.modeling.fitting import LevMarLSQFitter
 from matplotlib import pyplot as plt
 import numpy as np
+from scipy import interpolate, integrate
 import matplotlib as mpl
 
-from pahfit.component_models import S07_attenuation
+from pahfit.features.util import bounded_is_fixed
+from pahfit.component_models import S07_attenuation, BlackBody1D
 from pahfit.helpers import find_packfile
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
@@ -167,15 +169,74 @@ class Model:
         self.features.meta["user_unit"]["flux"] = spec.flux.unit
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, _ = self._convert_spec_data(spec, z)
+        wmin = min(xz)
+        wmax = max(xz)
 
-        # save these as part of the model (will be written to disk too)
-        self.features.meta["redshift"] = inst
-        self.features.meta["instrument"] = z
+        # simple linear interpolation function for spectrum
+        sp = interpolate.interp1d(xz, yz)
 
-        # remake param_info to make sure we have any feature updates from the user
-        param_info = self._kludge_param_info(inst, z)
-        param_info = PAHFITBase.estimate_init(xz, yz, param_info)
-        self._backport_param_info(param_info)
+        # we will repeat this loop logic several times
+        def loop_over_non_fixed(kind, parameter, estimate_function):
+            for row_index in np.where(self.features["kind"] == kind)[0]:
+                row = self.features[row_index]
+                if not bounded_is_fixed(row[parameter]):
+                    guess_value = estimate_function(row)
+                    # print(f"{row['name']}: setting {parameter} to {guess_value}")
+                    self.features[row_index][parameter][0] = guess_value
+
+        # guess starting point of bb
+        def starlight_guess(row):
+            bb = BlackBody1D(1, row["temperature"][0])
+            w = wmin + 0.1  # the wavelength used to compare
+            if w < 5:
+                # wavelength is short enough to not have numerical
+                # issues. Evaluate both at w.
+                amp_guess = sp(w) / bb(w)
+            else:
+                # wavelength too long for stellar BB. Evaluate BB at
+                # 5 micron, and spectrum data at minimum wavelength.
+                wsafe = 5
+                amp_guess = sp(w) / bb(wsafe)
+
+            return amp_guess
+
+        loop_over_non_fixed("starlight", "tau", starlight_guess)
+
+        def dust_continuum_guess(row):
+            temp = row["temperature"][0]
+            fmax_lam = 2898.0 / temp
+            bb = BlackBody1D(1, temp)
+            if fmax_lam >= wmin and fmax_lam <= wmax:
+                w = fmax_lam
+                flux_ref = sp(w)
+            elif fmax_lam > wmax:
+                w = wmax
+                flux_ref = yz[np.argmax(xz)]
+            else:
+                w = wmin
+                flux_ref = yz[np.argmin(xz)]
+
+            amp_guess = flux_ref / bb(w) * 0.2
+            return amp_guess
+
+        loop_over_non_fixed("dust_continuum", "tau", dust_continuum_guess)
+
+        def line_guess(row):
+            w = row["wavelength"][0]
+            if not instrument.within_segment(w, inst):
+                return 0
+
+            fwhm = instrument.fwhm(inst, w)[0][0]
+            xz_window = (w - 2 * fwhm < xz) & (xz < w + 2 * fwhm)
+            if np.count_nonzero(xz_window):
+                power_guess = integrate.trapezoid(yz[xz_window], xz[xz_window])
+            else:
+                power_guess = 0
+            amp_guess = power_guess / fwhm
+            return amp_guess
+
+        loop_over_non_fixed("line", "power", line_guess)
+        # loop_over_non_fixed("dust_feature", "power", lambda row: line_guess(row) * 0.1)
 
     @staticmethod
     def _convert_spec_data(spec, z):
