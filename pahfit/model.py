@@ -356,7 +356,13 @@ class Model:
         """Print out the last fit results."""
         print(self.astropy_result)
 
-    def plot(self, spec=None, redshift=None):
+    def plot(
+        self,
+        spec=None,
+        redshift=None,
+        use_instrument_fwhm=False,
+        label_lines=False,
+    ):
         """Plot model, and optionally compare to observational data.
 
         Parameters
@@ -374,7 +380,11 @@ class Model:
         """
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
-        enough_samples = max(1000, len(spec.wavelength))
+        # total model
+        model = self._construct_astropy_model(
+            inst, z, use_instrument_fwhm=use_instrument_fwhm
+        )
+        enough_samples = max(10000, len(spec.wavelength))
         x_mod = np.logspace(np.log10(min(xz)), np.log10(max(xz)), enough_samples)
 
         fig, axs = plt.subplots(
@@ -462,7 +472,9 @@ class Model:
                 )
 
         if "line" in self.features["kind"]:
-            lines_model = self.sub_model(inst, z, kind="line")
+            lines_model = self.sub_model(
+                inst, z, kind="line", use_instrument_fwhm=use_instrument_fwhm
+            )
             for c in lines_model:
                 ax.plot(
                     x_mod,
@@ -470,9 +482,18 @@ class Model:
                     "#DC267F",
                     alpha=0.5,
                 )
+                if label_lines:
+                    w = c.mean.value
+                    ax.text(
+                        w,
+                        model(w) / w,
+                        c.name,
+                        va="center",
+                        ha="center",
+                        rotation="vertical",
+                        bbox=dict(facecolor="white", alpha=0.75, pad=0),
+                    )
 
-        # total model
-        model = self._construct_astropy_model(inst, z, use_instrument_fwhm=False)
         ax.plot(x_mod, model(x_mod) / x_mod, "#FE6100", alpha=1)
 
         # data
