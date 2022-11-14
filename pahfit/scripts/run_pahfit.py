@@ -8,6 +8,7 @@ from pahfit.helpers import read_spectrum
 from pahfit.model import Model
 from pahfit.scripts.plot_pahfit import default_layout_plot
 
+from pahfit import instrument
 
 def initialize_parser():
     """
@@ -54,7 +55,7 @@ def initialize_parser():
     parser.add_argument(
         "instrumentname",
         # choices=instrumenttypes,
-        help="Name of the instrument. Available:" + str(instrumenttypes),
+        help="Name of the instrument. Available:" + str(instrument.packs.keys()),
     )
     parser.add_argument(
         "--savefig",
