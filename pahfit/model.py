@@ -5,6 +5,7 @@ from astropy.modeling.fitting import LevMarLSQFitter
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy import interpolate, integrate
+import matplotlib as mpl
 
 from pahfit.features.util import bounded_is_fixed
 from pahfit.component_models import BlackBody1D, Drude1D
