@@ -137,7 +137,7 @@ class Model:
     def _repr_html_(self):
         return self._status_message() + self.features._repr_html_()
 
-    def guess(self, spec: Spectrum1D, redshift=None, calc_line_fwhm=True):
+    def guess(self, spec: Spectrum1D, redshift=None, calc_line_fwhm=True, line=True, dust_feature=True):
         """Make an initial guess of the physics, based on the given
         observational data.
 
@@ -256,24 +256,29 @@ class Model:
             return power_guess / fwhm
 
         # calc line amplitude using instrumental fwhm and integral over data
-        loop_over_non_fixed(
-            "line", "power", lambda row: amp_guess(row, line_fwhm_guess(row))
-        )
+        if line:
+            loop_over_non_fixed(
+                "line", "power", lambda row: amp_guess(row, line_fwhm_guess(row))
+            )
         # set the fwhms in the features table requested
         if calc_line_fwhm:
             loop_over_non_fixed("line", "fwhm", line_fwhm_guess, force=True)
 
         def df_amp_guess(row):
             w = row["wavelength"][0]
-            fwhm=row["fwhm"][0]
-            if not (instrument.within_segment(w - fwhm, inst) or instrument.within_segment(w + fwhm, inst)):
+            fwhm = row["fwhm"][0]
+            if not (
+                instrument.within_segment(w - fwhm, inst)
+                or instrument.within_segment(w + fwhm, inst)
+            ):
                 return 0
 
             drude = Drude1D(amplitude=1, x_0=w, fwhm=fwhm)
             return sp(w) / drude(w)
 
         # for dust features, the fwhm is available in the table already
-        loop_over_non_fixed("dust_feature", "power", df_amp_guess)
+        if dust_feature:
+            loop_over_non_fixed("dust_feature", "power", df_amp_guess)
 
     @staticmethod
     def _convert_spec_data(spec, z):
@@ -371,14 +376,17 @@ class Model:
         # weigths
         w = 1.0 / uncz
 
+        # clean, because astropy does not like nan
+        mask = np.isfinite(xz) & np.isfinite(yz) & np.isfinite(w)
+
         # construct model and perform fit
         astropy_model = self._construct_astropy_model(inst, z, use_instrument_fwhm)
         fit = LevMarLSQFitter(calc_uncertainties=True)
         self.astropy_result = fit(
             astropy_model,
-            xz,
-            yz,
-            weights=w,
+            xz[mask],
+            yz[mask],
+            weights=w[mask],
             maxiter=maxiter,
             epsilon=1e-10,
             acc=1e-10,
