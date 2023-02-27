@@ -8,7 +8,7 @@ from scipy import interpolate, integrate
 import matplotlib as mpl
 
 from pahfit.features.util import bounded_is_fixed
-from pahfit.component_models import BlackBody1D, Drude1D
+from pahfit.component_models import BlackBody1D, Drude1D, S07_attenuation
 from pahfit.helpers import find_packfile
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
@@ -399,6 +399,7 @@ class Model:
         redshift=None,
         use_instrument_fwhm=False,
         label_lines=False,
+        **errorbar_kwargs,
     ):
         """Plot model, and optionally compare to observational data.
 
@@ -484,7 +485,7 @@ class Model:
             cont_y = cont_model(x_mod)
             # one plot for every component
             for c in cont_model:
-                ax.plot(x_mod, c(x_mod) * ext_model / x_mod, "#FFB000", alpha=0.5)
+                ax.plot(x_mod, c(x_mod) * ext_model, "#FFB000", alpha=0.5)
             # plot for total continuum?
 
         if "starlight" in self.features["kind"]:
@@ -495,7 +496,7 @@ class Model:
                 cont_model = star_cont_model
 
         # total continuum
-        ax.plot(x_mod, cont_y * ext_model / x_mod, "#785EF0", alpha=1)
+        ax.plot(x_mod, cont_y * ext_model, "#785EF0", alpha=1)
 
         if "dust_feature" in self.features["kind"]:
             # now plot the dust bands and lines
@@ -503,7 +504,7 @@ class Model:
             for c in features_model:
                 ax.plot(
                     x_mod,
-                    (cont_y + c(x_mod)) * ext_model / x_mod,
+                    (cont_y + c(x_mod)) * ext_model,
                     "#648FFF",
                     alpha=0.5,
                 )
@@ -515,7 +516,7 @@ class Model:
             for c in lines_model:
                 ax.plot(
                     x_mod,
-                    (cont_y + c(x_mod)) * ext_model / x_mod,
+                    (cont_y + c(x_mod)) * ext_model,
                     "#DC267F",
                     alpha=0.5,
                 )
@@ -523,7 +524,7 @@ class Model:
                     w = c.mean.value
                     ax.text(
                         w,
-                        model(w) / w,
+                        model(w),
                         c.name,
                         va="center",
                         ha="center",
@@ -531,13 +532,10 @@ class Model:
                         bbox=dict(facecolor="white", alpha=0.75, pad=0),
                     )
 
-        ax.plot(x_mod, model(x_mod) / x_mod, "#FE6100", alpha=1)
+        ax.plot(x_mod, model(x_mod), "#FE6100", alpha=1)
 
         # data
-        ax.errorbar(
-            xz,
-            yz / xz,
-            yerr=uncz / xz,
+        default_kwargs = dict(
             fmt="o",
             markeredgecolor="k",
             markerfacecolor="none",
@@ -546,6 +544,8 @@ class Model:
             capsize=0.5,
             markersize=6,
         )
+
+        ax.errorbar(xz, yz, yerr=uncz, **(default_kwargs | errorbar_kwargs))
 
         ax.set_ylim(0)
         ax.set_ylabel(r"$\nu F_{\nu}$")
@@ -568,7 +568,7 @@ class Model:
         )
 
         # residuals, lower sub-figure
-        res = (yz - model(xz)) / xz
+        res = (yz - model(xz))
         std = np.std(res)
         ax = axs[1]
 
@@ -588,7 +588,7 @@ class Model:
         )
 
         ax.axhline(0, linestyle="--", color="gray", zorder=0)
-        ax.plot(xz, res, "ko-", fillstyle="none", zorder=1)
+        ax.plot(xz, res, "ko-", fillstyle="none", zorder=1, markersize=errorbar_kwargs['markersize'], alpha=errorbar_kwargs['alpha'], linestyle='none')
         scalefac_resid = 2
         ax.set_ylim(-scalefac_resid * std, scalefac_resid * std)
         ax.set_xlim(np.floor(np.amin(xz)), np.ceil(np.amax(xz)))
