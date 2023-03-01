@@ -137,7 +137,14 @@ class Model:
     def _repr_html_(self):
         return self._status_message() + self.features._repr_html_()
 
-    def guess(self, spec: Spectrum1D, redshift=None, calc_line_fwhm=True, line=True, dust_feature=True):
+    def guess(
+        self,
+        spec: Spectrum1D,
+        redshift=None,
+        calc_line_fwhm=True,
+        line=True,
+        dust_feature=True,
+    ):
         """Make an initial guess of the physics, based on the given
         observational data.
 
@@ -576,7 +583,7 @@ class Model:
         )
 
         # residuals, lower sub-figure
-        res = (yz - model(xz))
+        res = yz - model(xz)
         std = np.std(res)
         ax = axs[1]
 
@@ -596,7 +603,16 @@ class Model:
         )
 
         ax.axhline(0, linestyle="--", color="gray", zorder=0)
-        ax.plot(xz, res, "ko-", fillstyle="none", zorder=1, markersize=errorbar_kwargs['markersize'], alpha=errorbar_kwargs['alpha'], linestyle='none')
+        ax.plot(
+            xz,
+            res,
+            "ko-",
+            fillstyle="none",
+            zorder=1,
+            markersize=errorbar_kwargs.get("markersize", None),
+            alpha=errorbar_kwargs.get("alpha", None),
+            linestyle="none",
+        )
         scalefac_resid = 2
         ax.set_ylim(-scalefac_resid * std, scalefac_resid * std)
         ax.set_xlim(np.floor(np.amin(xz)), np.ceil(np.amax(xz)))
