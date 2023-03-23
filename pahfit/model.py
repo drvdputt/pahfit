@@ -9,7 +9,6 @@ import matplotlib as mpl
 
 from pahfit.features.util import bounded_is_fixed
 from pahfit.component_models import BlackBody1D, Drude1D, S07_attenuation
-from pahfit.helpers import find_packfile
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
 from pahfit import instrument
@@ -494,60 +493,63 @@ class Model:
             mpl.lines.Line2D([0], [0], color="#FFB000", lw=2, alpha=0.5),
         ]
 
-        cont_model = None
+        # local utility
+        def tabulate_components(kind):
+            ss = {}
+            for name in self.features[self.features["kind"] == kind]["name"]:
+                ss[name] = self.tabulate(inst, z, x_mod, self.features["name"] == name)
+            return {name: s.flux.value for name, s in ss.items()}
+
+        cont_y = np.zeros(len(x_mod))
         if "dust_continuum" in self.features["kind"]:
-            cont_model = self.sub_model(inst, z, kind="dust_continuum")
-            cont_y = cont_model(x_mod)
             # one plot for every component
-            for c in cont_model:
-                ax.plot(x_mod, c(x_mod) * ext_model, "#FFB000", alpha=0.5)
-            # plot for total continuum?
+            for y in tabulate_components("dust_continuum").values():
+                ax.plot(x_mod, y * ext_model, "#FFB000", alpha=0.5)
+                # keep track of total continuum
+                cont_y += y
 
         if "starlight" in self.features["kind"]:
-            star_cont_model = self.sub_model(inst, z, kind="starlight")
-            if cont_model is not None:
-                cont_model += star_cont_model
-            else:
-                cont_model = star_cont_model
+            star_y = self.tabulate(
+                inst, z, x_mod, self.features["kind"] == "starlight"
+            ).flux.value
+            ax.plot(x_mod, star_y * ext_model, "#ffB000", alpha=0.5)
+            cont_y += star_y
 
         # total continuum
         ax.plot(x_mod, cont_y * ext_model, "#785EF0", alpha=1)
 
+        # now plot the dust bands and lines
         if "dust_feature" in self.features["kind"]:
-            # now plot the dust bands and lines
-            features_model = self.sub_model(inst, z, kind="dust_feature")
-            for c in features_model:
+            for y in tabulate_components("dust_feature").values():
                 ax.plot(
                     x_mod,
-                    (cont_y + c(x_mod)) * ext_model,
+                    (cont_y + y) * ext_model,
                     "#648FFF",
                     alpha=0.5,
                 )
 
         if "line" in self.features["kind"]:
-            lines_model = self.sub_model(
-                inst, z, kind="line", use_instrument_fwhm=use_instrument_fwhm
-            )
-            for c in lines_model:
+            for name, y in tabulate_components("line").items():
                 ax.plot(
                     x_mod,
-                    (cont_y + c(x_mod)) * ext_model,
+                    (cont_y + y) * ext_model,
                     "#DC267F",
                     alpha=0.5,
                 )
                 if label_lines:
-                    w = c.mean.value
+                    i = np.argmax(y)
+                    w = x_mod[i]
                     ax.text(
                         w,
-                        model(w),
-                        c.name,
+                        y[i],
+                        name,
                         va="center",
                         ha="center",
                         rotation="vertical",
                         bbox=dict(facecolor="white", alpha=0.75, pad=0),
                     )
 
-        ax.plot(x_mod, model(x_mod), "#FE6100", alpha=1)
+        ax.plot(x_mod, self.tabulate(inst, z, x_mod).flux.value, "#FE6100", alpha=1)
 
         # data
         default_kwargs = dict(
@@ -685,20 +687,6 @@ class Model:
             The flux model, evaluated at the given wavelengths, packaged
             as a Spectrum1D object.
         """
-        # apply feature mask, make sub model, and set up functional
-        if feature_mask is not None:
-            features_copy = self.features.copy()
-            features_to_use = features_copy[feature_mask]
-        else:
-            features_to_use = self.features
-        alt_model = Model(features_to_use)
-
-        # Always use the current FWHM here (use_instrument_fwhm would
-        # overwrite the value in the instrument overlap regions!)
-        flux_function = alt_model._construct_astropy_model(
-            instrumentname, redshift, use_instrument_fwhm=False
-        )
-
         # decide which wavelength grid to use
         if wavelengths is None:
             ranges = instrument.wave_range(instrumentname)
@@ -711,6 +699,35 @@ class Model:
         else:
             # any other iterable will be accepted and converted to array
             wav = np.asarray(wavelengths) * u.micron
+
+        # apply feature mask, make sub model, and set up functional
+        if feature_mask is not None:
+            features_copy = self.features.copy()
+            features_to_use = features_copy[feature_mask]
+        else:
+            features_to_use = self.features
+
+        # if nothing is in range, return early with zeros
+        if len(features_to_use) == 0:
+            return Spectrum1D(
+                spectral_axis=wav, flux=np.zeros(wav.shape) * u.dimensionless_unscaled
+            )
+
+        alt_model = Model(features_to_use)
+
+        # Always use the current FWHM here (use_instrument_fwhm would
+        # overwrite the value in the instrument overlap regions!)
+
+        # need to wrap in try block to avoid bug: if all components are
+        # removed (because of wavelength range considerations), it won't work
+        try:
+            flux_function = alt_model._construct_astropy_model(
+                instrumentname, redshift, use_instrument_fwhm=False
+            )
+        except PAHFITModelError:
+            return Spectrum1D(
+                spectral_axis=wav, flux=np.zeros(wav.shape) * u.dimensionless_unscaled
+            )
 
         # shift the "observed wavelength grid" to "physical wavelength grid"
         wav /= 1 + redshift
@@ -880,9 +897,11 @@ class Model:
 
         """
         # the rest of the implementation doesn't like Quantity...
-        z = spec.redshift.value if redshift is None else redshift
-        if z is None:
-            # default of spec.redshift is None!
+        if redshift is not None:
+            z = redshift
+        elif spec.redshift is not None:
+            z = spec.redshift.value
+        else:
             z = 0
 
         inst = spec.meta["instrument"]
