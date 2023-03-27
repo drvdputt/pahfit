@@ -280,7 +280,15 @@ class Model:
                 return 0
 
             drude = Drude1D(amplitude=1, x_0=w, fwhm=fwhm)
-            return sp(w) / drude(w)
+
+            if w < wmin:
+                w_eval = wmin
+            elif w > wmax:
+                w_eval = wmax
+            else:
+                w_eval = w
+
+            return sp(w_eval) / drude(w_eval)
 
         # for dust features, the fwhm is available in the table already
         if dust_feature:
