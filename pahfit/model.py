@@ -9,10 +9,13 @@ import matplotlib as mpl
 
 from pahfit.features.util import bounded_is_fixed
 from pahfit.component_models import BlackBody1D, Drude1D, S07_attenuation
+
+from pahfit.features.util import bounded_is_fixed
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
+from pahfit.component_models import BlackBody1D
 
 
 class Model:
@@ -140,9 +143,8 @@ class Model:
         self,
         spec: Spectrum1D,
         redshift=None,
+        integrate_line_flux=False,
         calc_line_fwhm=True,
-        line=True,
-        dust_feature=True,
     ):
         """Make an initial guess of the physics, based on the given
         observational data.
@@ -166,14 +168,27 @@ class Model:
 
             If None, will be taken from spec.redshift
 
+        integrate_line_flux : bool
+            Use the trapezoid rule to estimate line fluxes. Default is
+            False, where a simpler line guess is used (~ median flux).
+
+        calc_line_fwhm : bool
+            Default, True. Can be set to False to disable the instrument
+            model during the guess, as to avoid overwriting any manually
+            specified line widths.
+
         Returns
         -------
         Nothing, but internal feature table is updated.
 
         """
+        inst, z = self._parse_instrument_and_redshift(spec, redshift)
+        # save these as part of the model (will be written to disk too)
+        self.features.meta["redshift"] = inst
+        self.features.meta["instrument"] = z
+
         # parse spectral data
         self.features.meta["user_unit"]["flux"] = spec.flux.unit
-        inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, _ = self._convert_spec_data(spec, z)
         wmin = min(xz)
         wmax = max(xz)
@@ -258,41 +273,24 @@ class Model:
                     power_guess -= continuum
             else:
                 power_guess = 0
-
             return power_guess / fwhm
 
-        # calc line amplitude using instrumental fwhm and integral over data
-        if line:
+        # Same logic as in the old function: just use same amp for all
+        # dust features.
+        some_flux = 0.5 * np.median(yz)
+        loop_over_non_fixed("dust_feature", "power", lambda row: some_flux)
+
+        if integrate_line_flux:
+            # calc line amplitude using instrumental fwhm and integral over data
             loop_over_non_fixed(
                 "line", "power", lambda row: amp_guess(row, line_fwhm_guess(row))
             )
-        # set the fwhms in the features table requested
+        else:
+            loop_over_non_fixed("line", "power", lambda row: some_flux)
+
+        # set the fwhms in the features table
         if calc_line_fwhm:
             loop_over_non_fixed("line", "fwhm", line_fwhm_guess, force=True)
-
-        def df_amp_guess(row):
-            w = row["wavelength"][0]
-            fwhm = row["fwhm"][0]
-            if not (
-                instrument.within_segment(w - fwhm, inst)
-                or instrument.within_segment(w + fwhm, inst)
-            ):
-                return 0
-
-            drude = Drude1D(amplitude=1, x_0=w, fwhm=fwhm)
-
-            if w < wmin:
-                w_eval = wmin
-            elif w > wmax:
-                w_eval = wmax
-            else:
-                w_eval = w
-
-            return sp(w_eval) / drude(w_eval)
-
-        # for dust features, the fwhm is available in the table already
-        if dust_feature:
-            loop_over_non_fixed("dust_feature", "power", df_amp_guess)
 
     @staticmethod
     def _convert_spec_data(spec, z):
@@ -774,21 +772,6 @@ class Model:
         )
 
         return param_info
-
-    def _backport_param_info(self, param_info):
-        """Convert param_info to values in features table.
-
-        Temporary hack to make the new system compatible with the old system.
-
-        TODO: if we remove the param_info stuff entirely, we won't need this
-
-        """
-        # unfortunately, there is no implementation for this, even in
-        # the original code. That one goes straight from astropy model
-        # to table... But we can do a kludge here: convert to model
-        # first, and then back to table.
-        astropy_model = PAHFITBase.model_from_param_info(param_info)
-        self._parse_astropy_result(astropy_model)
 
     def _construct_astropy_model(
         self, instrumentname, redshift, use_instrument_fwhm=True
