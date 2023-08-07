@@ -8,15 +8,12 @@ from scipy import interpolate, integrate
 import matplotlib as mpl
 
 from pahfit.features.util import bounded_is_fixed
-from pahfit.component_models import BlackBody1D, Drude1D, S07_attenuation
 
-from pahfit.features.util import bounded_is_fixed
 from pahfit.features import Features
 from pahfit.base import PAHFITBase
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
-from pahfit.component_models import BlackBody1D
-
+from pahfit.component_models import BlackBody1D, S07_attenuation
 
 class Model:
     """This class acts as the main API for PAHFIT.
@@ -191,7 +188,10 @@ class Model:
         self.features.meta["user_unit"]["flux"] = spec.flux.unit
         _, _, _, xz, yz, _ = self._convert_spec_data(spec, z)
         wmin = min(xz)
-        wmax = max(xz)
+        # wmax = max(xz)
+
+        # reasonable flux value
+        some_flux = 0.5 * np.median(yz)
 
         # simple linear interpolation function for spectrum
         sp = interpolate.interp1d(xz, yz)
@@ -230,17 +230,20 @@ class Model:
             temp = row["temperature"][0]
             fmax_lam = 2898.0 / temp
             bb = BlackBody1D(1, temp)
-            if fmax_lam >= wmin and fmax_lam <= wmax:
-                w = fmax_lam
-                flux_ref = sp(w)
-            elif fmax_lam > wmax:
-                w = wmax
-                flux_ref = yz[np.argmax(xz)]
-            else:
-                w = wmin
-                flux_ref = yz[np.argmin(xz)]
+            bbmax = bb(fmax_lam)
+            # set maximum of blackbody equal to some reasonable value
+            amp_guess = some_flux / bbmax
+            # if fmax_lam >= wmin and fmax_lam <= wmax:
+            #     w = fmax_lam
+            #     flux_ref = sp(w)
+            # elif fmax_lam > wmax:
+            #     w = wmax
+            #     flux_ref = yz[np.argmax(xz)]
+            # else:
+            #     w = wmin
+            #     flux_ref = yz[np.argmin(xz)]
 
-            amp_guess = flux_ref / bb(w)
+            # amp_guess = flux_ref / bb(w)
             return amp_guess / nbb
 
         loop_over_non_fixed("dust_continuum", "tau", dust_continuum_guess)
@@ -275,9 +278,8 @@ class Model:
                 power_guess = 0
             return power_guess / fwhm
 
-        # Same logic as in the old function: just use same amp for all
-        # dust features.
-        some_flux = 0.5 * np.median(yz)
+        # same amplitude for all dust features (guessing too wel can
+        # bias the fit too much)
         loop_over_non_fixed("dust_feature", "power", lambda row: some_flux)
 
         if integrate_line_flux:
@@ -592,7 +594,7 @@ class Model:
 
         # residuals, lower sub-figure
         res = yz - model(xz)
-        std = np.std(res)
+        std = np.nanstd(res)
         ax = axs[1]
 
         ax.set_yscale("linear")
