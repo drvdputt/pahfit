@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from scipy import interpolate, integrate
 import matplotlib as mpl
+import os
 
 from pahfit.features.util import bounded_is_fixed
 
@@ -14,6 +15,7 @@ from pahfit.base import PAHFITBase
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
+
 
 class Model:
     """This class acts as the main API for PAHFIT.
@@ -118,6 +120,10 @@ class Model:
         **write_kwargs : kwargs passed to astropy.table.Table.write
 
         """
+        output_dir = os.path.dirname(fn)
+        if output_dir and not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+
         if fn.split(".")[-1] != "ecsv":
             raise NotImplementedError("Only ascii.ecsv is supported for now")
 
