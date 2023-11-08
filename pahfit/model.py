@@ -552,16 +552,18 @@ class Model:
                 )
                 if label_lines:
                     i = np.argmax(y)
-                    w = x_mod[i]
-                    ax.text(
-                        w,
-                        y[i],
-                        name,
-                        va="center",
-                        ha="center",
-                        rotation="vertical",
-                        bbox=dict(facecolor="white", alpha=0.75, pad=0),
-                    )
+                    # ignore out of range lines
+                    if i > 0 and i < len(y) - 1:
+                        w = x_mod[i]
+                        ax.text(
+                            w,
+                            y[i],
+                            name,
+                            va="center",
+                            ha="center",
+                            rotation="vertical",
+                            bbox=dict(facecolor="white", alpha=0.75, pad=0),
+                        )
 
         ax.plot(x_mod, self.tabulate(inst, z, x_mod).flux.value, "#FE6100", alpha=1)
 
