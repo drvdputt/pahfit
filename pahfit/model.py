@@ -706,8 +706,11 @@ class Model:
         # decide which wavelength grid to use
         if wavelengths is None:
             ranges = instrument.wave_range(instrumentname)
-            wmin = min(r[0] for r in ranges)
-            wmax = max(r[1] for r in ranges)
+            if isinstance(instrumentname, str):
+                wmin, wmax = ranges
+            else:
+                wmin = min(r[0] for r in ranges)
+                wmax = max(r[1] for r in ranges)
             wfwhm = instrument.fwhm(instrumentname, wmin, as_bounded=True)[0, 0]
             wav = np.arange(wmin, wmax, wfwhm / 2) * u.micron
         elif isinstance(wavelengths, Spectrum1D):
