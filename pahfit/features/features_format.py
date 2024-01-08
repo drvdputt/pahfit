@@ -2,15 +2,18 @@ import numpy.ma as ma
 from astropy.table import MaskedColumn
 from astropy.table.pprint import TableFormatter
 
-
 # * Special table formatting for bounded (val, min, max) values
 def fmt_func(fmt):
     def _fmt(v):
-        if ma.is_masked(v[0]):
-            return "  <n/a>  "
-        if ma.is_masked(v[1]):
-            return f"{v[0]:{fmt}} (Fixed)"
-        return f"{v[0]:{fmt}} ({v[1]:{fmt}}, {v[2]:{fmt}})"
+        try: 
+            if ma.is_masked(v) or ma.is_masked(v[0]):
+                return "  <n/a>  "
+            if ma.is_masked(v[1]):
+                return f"{v[0]:{fmt}} (Fixed)"
+            return f"{v[0]:{fmt}} ({v[1]:{fmt}}, {v[2]:{fmt}})"
+        except IndexError as e:
+            print("bad value was passed to _fmt")
+            raise e
 
     return _fmt
 
