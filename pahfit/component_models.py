@@ -3,8 +3,9 @@ from scipy import interpolate
 from astropy.modeling.physical_models import Drude1D
 from astropy.modeling import Fittable1DModel
 from astropy.modeling import Parameter
+from astropy.modeling.functional_models import Gaussian1D
 
-__all__ = ["BlackBody1D", "ModifiedBlackBody1D", "S07_attenuation", "att_Drude1D"]
+__all__ = ["BlackBody1D", "ModifiedBlackBody1D", "S07_attenuation", "att_Drude1D", "Gaussian1D"]
 
 
 class BlackBody1D(Fittable1DModel):

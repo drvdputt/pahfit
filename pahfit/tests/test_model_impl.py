@@ -39,10 +39,11 @@ def test_feature_table_model_conversion():
     reconstructed_fit_result = model._construct_astropy_model(
         instrumentname=spec.meta["instrument"], redshift=0, use_instrument_fwhm=False
     )
-    for p in fit_result.param_names:
-        p1 = getattr(fit_result, p)
-        p2 = getattr(reconstructed_fit_result, p)
-        assert p1 == p2
+    for c in fit_result.submodel_names:
+        for p in fit_result[c].param_names:
+            p1 = getattr(fit_result[c], p)
+            p2 = getattr(reconstructed_fit_result[c], p)
+            assert p1 == p2
 
 
 def test_model_edit():

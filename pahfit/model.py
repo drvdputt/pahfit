@@ -11,10 +11,10 @@ import os
 from pahfit.features.util import bounded_is_fixed
 
 from pahfit.features import Features
-from pahfit.base import PAHFITBase
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
+from pahfit.fitter import AstropyFitter
 
 
 class Model:
@@ -400,7 +400,7 @@ class Model:
         mask = np.isfinite(xz) & np.isfinite(yz) & np.isfinite(w)
 
         # construct model and perform fit
-        astropy_model = self._construct_astropy_model(inst, z, use_instrument_fwhm)
+        astropy_model = self._construct_model(inst, z, use_instrument_fwhm)
         fit = LevMarLSQFitter(calc_uncertainties=True)
         self.astropy_result = fit(
             astropy_model,
@@ -447,9 +447,7 @@ class Model:
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
         # total model
-        model = self._construct_astropy_model(
-            inst, z, use_instrument_fwhm=use_instrument_fwhm
-        )
+        model = self._construct_model(inst, z, use_instrument_fwhm=use_instrument_fwhm)
         enough_samples = max(10000, len(spec.wavelength))
         x_mod = np.logspace(np.log10(min(xz)), np.log10(max(xz)), enough_samples)
 
@@ -706,9 +704,11 @@ class Model:
         # decide which wavelength grid to use
         if wavelengths is None:
             ranges = instrument.wave_range(instrumentname)
-            if isinstance(instrumentname, str):
+            if isinstance(ranges[0], float):
                 wmin, wmax = ranges
             else:
+                # In case of multiple ranges (multiple segments), choose
+                # the min and max instead
                 wmin = min(r[0] for r in ranges)
                 wmax = max(r[1] for r in ranges)
             wfwhm = instrument.fwhm(instrumentname, wmin, as_bounded=True)[0, 0]
@@ -740,7 +740,7 @@ class Model:
         # need to wrap in try block to avoid bug: if all components are
         # removed (because of wavelength range considerations), it won't work
         try:
-            flux_function = alt_model._construct_astropy_model(
+            flux_function = alt_model._construct_model(
                 instrumentname, redshift, use_instrument_fwhm=False
             )
         except PAHFITModelError:
@@ -761,34 +761,29 @@ class Model:
 
         return Spectrum1D(spectral_axis=wav, flux=flux_quantity)
 
-    def _kludge_param_info(self, instrumentname, redshift, use_instrument_fwhm=True):
-        param_info = PAHFITBase.parse_table(self.features)
-        # edit line widths and drop lines out of range
+    def _excluded_features(self, instrumentname, redshift):
+        """Determine excluded features Based on instrument wavelength range.
 
-        # h2_info
-        param_info[2] = PAHFITBase.update_dictionary(
-            param_info[2],
-            instrumentname,
-            update_fwhms=use_instrument_fwhm,
-            redshift=redshift,
-        )
-        # ion_info
-        param_info[3] = PAHFITBase.update_dictionary(
-            param_info[3],
-            instrumentname,
-            update_fwhms=use_instrument_fwhm,
-            redshift=redshift,
-        )
-        # abs_info
-        param_info[4] = PAHFITBase.update_dictionary(
-            param_info[4], instrumentname, redshift
+         instrumentname : str
+            Qualified instrument name
+
+        Returns
+        -------
+        array of bool, same length as self.features, True where features
+        are far outside the wavelength range.
+        """
+        observed_wavs = self.features["wavelength"][:, 0] * (1 + redshift)
+        is_outside = ~instrument.within_segment(observed_wavs, instrumentname)
+
+        # restriction on the kind of feature that can be excluded
+        excludable = ["line", "dust_feature", "absorption"]
+        is_excludable = np.logical_or.reduce(
+            [kind == self.features["kind"] for kind in excludable]
         )
 
-        return param_info
+        return is_outside & is_excludable
 
-    def _construct_astropy_model(
-        self, instrumentname, redshift, use_instrument_fwhm=True
-    ):
+    def _construct_model(self, instrumentname, redshift, use_instrument_fwhm=True):
         """Convert the features table into a fittable model.
 
         Some nuances in the behavior
@@ -798,16 +793,85 @@ class Model:
           function is called again, those masks will be ignored, as the
           data range might have changed.
 
-        TODO: Make sure the features outside of the data range are
-        removed. The instrument-based feature check is done in
-        _kludge_param_info(), but the observational data might only
-        cover a part of the instrument range.
+        Uses the new generalized model constructor, using with my draft
+        API. General concept: for every row of the features table, call
+        the applicable function of the API to register that component.
+        At the end, finalize the Fitter to merge the components into a
+        fittable model (details hidden under the hood of that class).
+
+        Any unit conversions and model-specific things need to happen
+        BEFORE giving them to the fitters. So to be clear, the
+        instrument-derived FWHM needs to be passed here.
+
+        Internally, the fitters may do additional unit conversions, to
+        improve numerics, or to deal with specific inputs for the
+        functional models they use.
+
+        TODO: feature trimming and FWHM adjustment! Just as was done
+        with the update_dictionary function for param_info.
+
+        Returns
+        -------
+
+        For now, this returns an astropy model. In the future, it should
+        return a generic "Fitter" object.
 
         """
-        param_info = self._kludge_param_info(
-            instrumentname, redshift, use_instrument_fwhm
-        )
-        return PAHFITBase.model_from_param_info(param_info)
+        # Fitting implementation can be changed by choosing another Fitter class
+        fitter = AstropyFitter()
+
+        excluded = self._excluded_features(instrumentname, redshift)
+
+        for row in self.features[~excluded]:
+            kind = row["kind"]
+            name = row["name"]
+
+            if kind == "starlight":
+                fitter.register_starlight(name, row["temperature"], row["tau"])
+
+            elif kind == "dust_continuum":
+                fitter.register_dust_continuum(name, row["temperature"], row["tau"])
+
+            elif kind == "line":
+                if use_instrument_fwhm:
+                    # one caveat here: redshift. Correct way to do it:
+                    # 1. shift to observed wav; 2. evaluate fwhm at
+                    # oberved wav; 3. shift back to rest frame wav
+                    # (width in rest frame will be narrower than
+                    # observed width)
+                    w_obs = row["wavelength"] * (1.0 + redshift)
+                    # returned value is tuple (value, min, max). And
+                    # min/max are already masked in case of fixed value
+                    # (output of instrument.resolution is designed to be
+                    # very similar to an entry in the features table)
+                    fwhm = instrument.fwhm(instrumentname, w_obs, as_bounded=True)[
+                        0
+                    ] / (1.0 + redshift)
+                else:
+                    fwhm = row["fwhm"]
+                fitter.register_line(name, row["power"], row["wavelength"], fwhm)
+
+            elif kind == "dust_feature":
+                fitter.register_dust_feature(
+                    name, row["power"], row["wavelength"], row["fwhm"]
+                )
+
+            elif kind == "attenuation":
+                fitter.register_attenuation(name, row["tau"])
+
+            elif kind == "absorption":
+                fitter.register_absorption(
+                    name, row["tau"], row["wavelength"], row["fwhm"]
+                )
+
+            else:
+                RuntimeError(f"Model components of kind {kind} are not implemented!")
+
+        fitter.finalize_model()
+
+        # Return the model for now. Will be changed when the fitting is
+        # also under the hood of Fitter.
+        return fitter.model
 
     def _parse_astropy_result(self, astropy_model):
         """Store the result of the astropy fit into the features table.

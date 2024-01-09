@@ -123,7 +123,7 @@ def main():
     print("Writing result to ", outputname)
     model.save(outputname)
 
-    fig = default_layout_plot(spec, model, args.scalefac_resid)
+    fig = default_layout_plot(spec, model)
 
     # show
     if args.showplot:
