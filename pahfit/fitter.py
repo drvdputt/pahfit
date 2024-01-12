@@ -8,6 +8,7 @@ from pahfit.component_models import (
     att_Drude1D,
 )
 import numpy as np
+from astropy.modeling.fitting import LevMarLSQFitter
 
 
 class AstropyFitter:
@@ -36,6 +37,44 @@ class AstropyFitter:
     output and returning numbers that can be put into the features
     table. After the fit, the Model class can then loop over the
     features table again, and fill in the numbers as necessary.
+
+    Sketch for how multi-segment fitting could work:
+
+    1. During set up, an extra argument is passed, indicating the
+    segment number. Each segment gets a different list of components to
+    use.
+
+    2. During finalize the joint model / something else for joint
+    fitting is set up (if using native astropy method?). Alternatively,
+    all the separate models are constructed, and then a set of "unique"
+    parameters is gathered. This is called the "parameter union" (as it
+    is like taking the union of the parameters sets for the individual
+    segments).
+
+    3. During the fitting, the objective function (chi2) is the sum of
+    the objective functions for the individual models. The arguments of
+    this objective function, are the unique parameters that were derived
+    above. At every fitting step, these parameters will change. Inside
+    the objective function, these changes should be propagated to the
+    individual models, after which they can be evaluated again. All the
+    fitting algorithm needs, is the parameter space, and the objective
+    function value.
+
+    So conceptually simple, but bookkeeping and performance will be
+    tricky.
+
+    Another sudden idea: use concatenations!
+
+    - concatenate x
+    - concatenate y
+    - bookkeep the boundaries between the concatenations
+    - when evaluating, fill the concatenated model spectrum using a
+      model that depends on the index (according to the boundaries that
+      were set up)
+    - This still has the problem of how to tie the parameters of the
+      segments to the parameter union. Ideally, we would edit the values
+      by adress, but don't know if the internals of the fitting
+      algorithm would allow this.
 
     """
 
@@ -211,10 +250,53 @@ class AstropyFitter:
 
         return kwargs
 
-    def fit(self, spec):
-        """Need to decide on standard for spectrum here. Try to avoid
-        leaking spectral information. Will be harder for multi-segment
-        fitting."""
+    def fit(self, xz, yz, uncz, verbose=False, maxiter=10000):
+        """Fit the astropy model using the astropy fitter.
+
+        Ideally, the whole fitter class is unit agnostic. It should deal
+        with the numbers the Model tells it to deal with. Internal
+        renormalizations are allowed of course, as long as the results
+        are converted back to the original system before returning them.
+
+        In practice, let's follow the these guidelines:
+        - The input is expected to be in internal units
+        - Corrected for redshift (models operate in the rest frame).
+        - Has no nan's or inf's
+        - No zero uncertainties
+
+        Parameters
+        ----------
+        xz : array
+            Rest frame wavelengths in micron
+
+        yz : array
+            Rest frame flux in arbitrary units? Will determine the units of
+            amplitude / power... So we should set the internal unit
+            here.
+
+        uncz : array
+            Uncertaingty on rest frame flux. Same units as yz.
+
+        """
+        # clean, because astropy does not like nan
+        w = 1 / uncz
+
+        # make sure there are no zero uncertainties either
+        mask = np.isfinite(xz) & np.isfinite(yz) & np.isfinite(w)
+
+        fit = LevMarLSQFitter(calc_uncertainties=True)
+        self.astropy_result = fit(
+            self.model,
+            xz[mask],
+            yz[mask],
+            weights=w[mask],
+            maxiter=maxiter,
+            epsilon=1e-10,
+            acc=1e-10,
+        )
+        self.fit_info = fit.fit_info
+        if verbose:
+            print(fit.fit_info["message"])
 
     def component_param_values(self, name):
         """Do we also get multiple functions? Or just return a string

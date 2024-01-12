@@ -1,7 +1,6 @@
 from specutils import Spectrum1D
 from astropy import units as u
 import copy
-from astropy.modeling.fitting import LevMarLSQFitter
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy import interpolate, integrate
@@ -393,29 +392,11 @@ class Model:
         # check if observed spectrum is compatible with instrument model
         instrument.check_range([min(x), max(x)], inst)
 
-        # weigths
-        w = 1.0 / uncz
+        self.fitter = self._construct_model(inst, z, use_instrument_fwhm)
+        self.fitter.fit(xz, yz, uncz, verbose=verbose, maxiter=maxiter)
 
-        # clean, because astropy does not like nan
-        mask = np.isfinite(xz) & np.isfinite(yz) & np.isfinite(w)
-
-        # construct model and perform fit
-        astropy_model = self._construct_model(inst, z, use_instrument_fwhm)
-        fit = LevMarLSQFitter(calc_uncertainties=True)
-        self.astropy_result = fit(
-            astropy_model,
-            xz[mask],
-            yz[mask],
-            weights=w[mask],
-            maxiter=maxiter,
-            epsilon=1e-10,
-            acc=1e-10,
-        )
-        self.fit_info = fit.fit_info
-        if verbose:
-            print(fit.fit_info["message"])
-
-        self._parse_astropy_result(self.astropy_result)
+        # needs to also become independent of astropy
+        self._parse_astropy_result(self.fitter.astropy_result)
 
     def info(self):
         """Print out the last fit results."""
@@ -447,7 +428,9 @@ class Model:
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         _, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
         # total model
-        model = self._construct_model(inst, z, use_instrument_fwhm=use_instrument_fwhm)
+        model = self._construct_model(
+            inst, z, use_instrument_fwhm=use_instrument_fwhm
+        ).model
         enough_samples = max(10000, len(spec.wavelength))
         x_mod = np.logspace(np.log10(min(xz)), np.log10(max(xz)), enough_samples)
 
@@ -742,7 +725,7 @@ class Model:
         try:
             flux_function = alt_model._construct_model(
                 instrumentname, redshift, use_instrument_fwhm=False
-            )
+            ).model
         except PAHFITModelError:
             return Spectrum1D(
                 spectral_axis=wav, flux=np.zeros(wav.shape) * u.dimensionless_unscaled
@@ -865,13 +848,12 @@ class Model:
                 )
 
             else:
-                RuntimeError(f"Model components of kind {kind} are not implemented!")
+                raise PAHFITModelError(
+                    f"Model components of kind {kind} are not implemented!"
+                )
 
         fitter.finalize_model()
-
-        # Return the model for now. Will be changed when the fitting is
-        # also under the hood of Fitter.
-        return fitter.model
+        return fitter
 
     def _parse_astropy_result(self, astropy_model):
         """Store the result of the astropy fit into the features table.
