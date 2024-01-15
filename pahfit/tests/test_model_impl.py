@@ -37,7 +37,7 @@ def test_feature_table_model_conversion():
     # result in the exact same model.
 
     # test only works for the astropy-based implementation at the moment.
-    fit_result = model.fitter.astropy_result
+    fit_result = model.fitter.model
     reconstructed_fit_result = model._construct_model(
         instrumentname=spec.meta["instrument"], redshift=0, use_instrument_fwhm=False
     ).model

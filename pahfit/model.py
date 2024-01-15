@@ -338,7 +338,7 @@ class Model:
         specification.
 
         The last fit results can accessed through the variable
-        model.astropy_result. The results are also stored back to the
+        model.fitter. The results are also stored back to the
         model.features table.
 
         CAVEAT: any features that do not overlap with the data range
@@ -395,8 +395,25 @@ class Model:
         self.fitter = self._construct_model(inst, z, use_instrument_fwhm)
         self.fitter.fit(xz, yz, uncz, verbose=verbose, maxiter=maxiter)
 
-        # needs to also become independent of astropy
-        self._parse_astropy_result(self.fitter.astropy_result)
+        # copy the fit results to the features table
+        self._ingest_fit_result_to_features(self.fitter)
+
+    def _ingest_fit_result_to_features(self, fitter: AstropyFitter):
+        """Copy the results from a Fitter to the features table
+
+        This is a utility method, executed only at the end of fit(),
+        where the Fitter is passed after Fitter.fit() has been applied.
+        Passing a different Fitter object could be useful for
+        testing.
+
+        """
+        # iterate over the list stored in fitter, so we only get
+        # components that were set up by _construct_model. Having an
+        # ENABLED/DISABLED flag for every feature would be a nice
+        # alternative (and clear for the user).
+        for name in fitter.components():
+            for column, value in fitter.get_result(name).items():
+                self.features.loc[name][column][0] = value
 
     def info(self):
         """Print out the last fit results."""
@@ -769,13 +786,6 @@ class Model:
     def _construct_model(self, instrumentname, redshift, use_instrument_fwhm=True):
         """Convert the features table into a fittable model.
 
-        Some nuances in the behavior
-        - If a line has a fwhm set, it will be ignored, and replaced by
-          the calculated fwhm provided by the instrument model.
-        - If a line has been masked by _parse_astropy_result, and this
-          function is called again, those masks will be ignored, as the
-          data range might have changed.
-
         Uses the new generalized model constructor, using with my draft
         API. General concept: for every row of the features table, call
         the applicable function of the API to register that component.
@@ -784,14 +794,25 @@ class Model:
 
         Any unit conversions and model-specific things need to happen
         BEFORE giving them to the fitters. So to be clear, the
-        instrument-derived FWHM needs to be passed here.
+        instrument-derived FWHM needs to be passed here. Internally, the
+        fitters may do additional unit conversions, to avoid numerical
+        issues, or to deal with specific inputs for the functional
+        models they use.
 
-        Internally, the fitters may do additional unit conversions, to
-        improve numerics, or to deal with specific inputs for the
-        functional models they use.
+        For features that do not correspond to the data range,
+        components will not be added to the Fitter. At the end of fit(),
+        those values will not be updated. TODO: (en/dis)abled flagging.
+        We still keep their parameter values around (as opposed to
+        removing the rows entirely). When data with a larger wavelength
+        range are passed during another fitting call, those features can
+        be unmasked if necessary.
 
-        TODO: feature trimming and FWHM adjustment! Just as was done
-        with the update_dictionary function for param_info.
+        Some nuances in the behavior
+        - If a line has a fwhm set, it will be ignored, and replaced by
+        the calculated fwhm provided by the instrument model.
+        - If a line is disabled, and this function is called again,
+        those flags will be ignored, as the data range might have
+        changed.
 
         Returns
         -------
@@ -854,91 +875,6 @@ class Model:
 
         fitter.finalize_model()
         return fitter
-
-    def _parse_astropy_result(self, astropy_model):
-        """Store the result of the astropy fit into the features table.
-
-        Every relevant value inside the astropy model, is written to the
-        right position in the features table.
-
-        For the unresolved lines, the widths are calculated by the
-        instrument model, or fitted when these lines are in a spectral
-        overlap region. The calculated or fitted result is written to
-        the fwhm field of the table. When a new model is constructed
-        from the features table, this fwhm value will be ignored.
-
-        For features that do not correspond to the data range, all
-        parameter values will be masked. Their numerical values remain
-        accessible by '.data' on the masked entity. This way, We still
-        keep their parameter values around (as opposed to removing the
-        rows entirely). When data with a larger range are passed for
-        another fitting call, those features can be unmasked if
-        necessary.
-
-        """
-        if len(self.features) < 2:
-            # Plotting and tabulating works fine, but the code below
-            # will not work with only one component. This can be
-            # addressed later, when the internal API is made agnostic of
-            # the fitting backend (astropy vs our own).
-            raise PAHFITModelError("Fit with fewer than 2 components not allowed!")
-
-        # Some translation rules between astropy model components and
-        # feature table names and values.
-
-        # these have the same value but different (fixed) names
-        param_name_equivalent = {
-            "temperature": "temperature",
-            "fwhm": "fwhm",
-            "x_0": "wavelength",
-            "mean": "wavelength",
-            "tau_sil": "tau",
-        }
-
-        def param_conversion(features_kind, param_name, param_value):
-            # default conversion
-            if param_name in param_name_equivalent:
-                new_name = param_name_equivalent[param_name]
-                new_value = param_value
-            # certain types of features use tau instead of amplitude
-            elif param_name == "amplitude":
-                if features_kind in ["starlight", "dust_continuum", "absorption"]:
-                    new_name = "tau"
-                else:
-                    new_name = "power"
-                new_value = param_value
-            # convert stddev to fwhm
-            elif param_name == "stddev":
-                new_name = "fwhm"
-                new_value = param_value * 2.355
-            else:
-                raise NotImplementedError(
-                    f"no conversion rule for model parameter {param_name}"
-                )
-            return new_name, new_value
-
-        # Go over all features.
-        for row in self.features:
-            name = row["name"]
-            if name in astropy_model.submodel_names:
-                # undo any previous masking that might have occured
-                self.features.unmask_feature(name)
-
-                # copy or translate, and store the parameters
-                component = astropy_model[name]
-                for param_name in component.param_names:
-                    param_value = getattr(component, param_name).value
-                    col_name, col_value = param_conversion(
-                        row["kind"], param_name, param_value
-                    )
-                    row[col_name][0] = col_value
-
-                # for the unresolved lines, indicate when the line fwhm was made non-fixed
-                if row["kind"] == "line" and col_name == "fwhm":
-                    row["fwhm"].mask[1:] = component.fixed[param_name]
-            else:
-                # signal that it was not fit by masking the feature
-                self.features.mask_feature(name)
 
     @staticmethod
     def _parse_instrument_and_redshift(spec, redshift):
