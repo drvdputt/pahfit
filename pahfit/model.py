@@ -740,17 +740,17 @@ class Model:
         # need to wrap in try block to avoid bug: if all components are
         # removed (because of wavelength range considerations), it won't work
         try:
-            flux_function = alt_model._construct_model(
+            fitter = alt_model._construct_model(
                 instrumentname, redshift, use_instrument_fwhm=False
-            ).model
+            )
         except PAHFITModelError:
             return Spectrum1D(
                 spectral_axis=wav, flux=np.zeros(wav.shape) * u.dimensionless_unscaled
             )
 
-        # shift the "observed wavelength grid" to "physical wavelength grid"
+        # shift the "observed wavelength grid" to "physical wavelength grid
         wav /= 1 + redshift
-        flux_values = flux_function(wav.value)
+        flux_values = fitter.evaluate(wav.value)
 
         # apply unit stored in features table (comes from from last fit
         # or from loading previous result from disk)
@@ -784,13 +784,12 @@ class Model:
         return is_outside & is_excludable
 
     def _construct_model(self, instrumentname, redshift, use_instrument_fwhm=True):
-        """Convert the features table into a fittable model.
+        """Convert features table to Fitter instance.
 
-        Uses the new generalized model constructor, using with my draft
-        API. General concept: for every row of the features table, call
-        the applicable function of the API to register that component.
-        At the end, finalize the Fitter to merge the components into a
-        fittable model (details hidden under the hood of that class).
+        General concept: for every row of the features table, call a
+        function of Fitter API to register that component. At the end,
+        finalize the Fitter to merge the components into a fittable
+        model (with the details hidden under the hood of that class).
 
         Any unit conversions and model-specific things need to happen
         BEFORE giving them to the fitters. So to be clear, the
@@ -816,9 +815,7 @@ class Model:
 
         Returns
         -------
-
-        For now, this returns an astropy model. In the future, it should
-        return a generic "Fitter" object.
+        Fitter
 
         """
         # Fitting implementation can be changed by choosing another Fitter class

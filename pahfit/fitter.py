@@ -246,6 +246,21 @@ class AstropyFitter:
         )
         self._register_component(att_Drude1D, multiplicative=True, **kwargs)
 
+    def evaluate_model(self, xz):
+        """Evaluate internal astropy model with its current parameters.
+
+        Parameters
+        ----------
+        xz : array
+            Rest frame wavelengths in micron
+
+        Returns
+        -------
+        yz : array
+            Rest frame flux in internal units
+        """
+        return self.model(xz)
+
     def fit(self, xz, yz, uncz, verbose=False, maxiter=10000):
         """Fit the internal model using the astropy fitter.
 
