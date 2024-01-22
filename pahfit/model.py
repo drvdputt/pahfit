@@ -659,7 +659,7 @@ class Model:
     def tabulate(
         self,
         instrumentname,
-        redshift=0,
+        redshift=None,
         wavelengths=None,
         feature_mask=None,
     ):
@@ -701,6 +701,8 @@ class Model:
             The flux model, evaluated at the given wavelengths, packaged
             as a Spectrum1D object.
         """
+        z = 0 if redshift is None else redshift
+
         # decide which wavelength grid to use
         if wavelengths is None:
             ranges = instrument.wave_range(instrumentname)
@@ -741,7 +743,7 @@ class Model:
         # removed (because of wavelength range considerations), it won't work
         try:
             fitter = alt_model._construct_model(
-                instrumentname, redshift, use_instrument_fwhm=False
+                instrumentname, z, use_instrument_fwhm=False
             )
         except PAHFITModelError:
             return Spectrum1D(
@@ -749,8 +751,8 @@ class Model:
             )
 
         # shift the "observed wavelength grid" to "physical wavelength grid
-        wav /= 1 + redshift
-        flux_values = fitter.evaluate(wav.value)
+        wav /= 1 + z
+        flux_values = fitter.evaluate_model(wav.value)
 
         # apply unit stored in features table (comes from from last fit
         # or from loading previous result from disk)
@@ -818,6 +820,7 @@ class Model:
         Fitter
 
         """
+
         # Fitting implementation can be changed by choosing another Fitter class
         fitter = AstropyFitter()
 
