@@ -13,7 +13,7 @@ from pahfit.features import Features
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
-from pahfit.fitter import AstropyFitter
+from pahfit.apfitter import APFitter
 
 
 class Model:
@@ -398,7 +398,7 @@ class Model:
         # copy the fit results to the features table
         self._ingest_fit_result_to_features(self.fitter)
 
-    def _ingest_fit_result_to_features(self, fitter: AstropyFitter):
+    def _ingest_fit_result_to_features(self, fitter: APFitter):
         """Copy the results from a Fitter to the features table
 
         This is a utility method, executed only at the end of fit(),
@@ -820,9 +820,8 @@ class Model:
         Fitter
 
         """
-
         # Fitting implementation can be changed by choosing another Fitter class
-        fitter = AstropyFitter()
+        fitter = APFitter()
 
         excluded = self._excluded_features(instrumentname, redshift)
 
