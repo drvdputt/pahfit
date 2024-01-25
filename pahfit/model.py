@@ -14,7 +14,8 @@ from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
 from pahfit.apfitter import APFitter
 
-__all__ = ['Model']
+__all__ = ["Model"]
+
 
 class Model:
     """This class acts as the main API for PAHFIT.

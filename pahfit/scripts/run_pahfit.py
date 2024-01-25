@@ -10,6 +10,7 @@ from pahfit.scripts.plot_pahfit import default_layout_plot
 
 from pahfit import instrument
 
+
 def initialize_parser():
     """
     Command line parser for run_pahfit
@@ -82,14 +83,13 @@ def initialize_parser():
 
 
 def main():
-
     # setup and parse the command line
     parser = initialize_parser()
     args = parser.parse_args()
 
     # read in the spectrum
     spec = read_spectrum(args.spectrumfile)
-    spec.meta['instrument'] = args.instrumentname
+    spec.meta["instrument"] = args.instrumentname
 
     # setup the model
     model = Model.from_yaml(args.packfile)
