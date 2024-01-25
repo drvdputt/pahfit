@@ -13,6 +13,7 @@ from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D
 
+__all__ = ['Model']
 
 class Model:
     """This class acts as the main API for PAHFIT.
