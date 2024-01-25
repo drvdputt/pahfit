@@ -37,15 +37,15 @@ def test_feature_table_model_conversion():
     # result in the exact same model.
 
     # test only works for the astropy-based implementation at the moment.
-    fit_result = model.fitter.model
+    fit_result = model.fitter
     reconstructed_fit_result = model._construct_model(
         instrumentname=spec.meta["instrument"], redshift=0, use_instrument_fwhm=False
-    ).model
-    for c in fit_result.submodel_names:
-        for p in fit_result[c].param_names:
-            p1 = getattr(fit_result[c], p)
-            p2 = getattr(reconstructed_fit_result[c], p)
-            assert p1 == p2
+    )
+    for name in fit_result.components():
+        par_dict1 = fit_result.get_result(name)
+        par_dict2 = reconstructed_fit_result.get_result(name)
+        for key in par_dict1:
+            assert par_dict1[key] == par_dict2[key]
 
 
 def test_model_edit():
@@ -72,7 +72,7 @@ def test_model_edit():
 
     # Make sure the change is reflected in this astropy model. Very
     # handy that we can access the right component by the feature name!
-    assert fitter_edit.model[feature].temperature == newT
+    assert fitter_edit.get_result(feature)['temperature'] == newT
 
 
 def test_model_tabulate():
