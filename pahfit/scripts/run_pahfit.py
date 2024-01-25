@@ -34,28 +34,13 @@ def initialize_parser():
         "raw",
     ]
     savetypes = ["fits", "votable", "ipac", "ascii.ecsv"]
-    instrumenttypes = [
-        "spitzer.irs.sl.1",
-        "spitzer.irs.sl.2",
-        "spitzer.irs.sl.3",
-        "spitzer.irs.ll.1",
-        "spitzer.irs.ll.2",
-        "spitzer.irs.ll.3",
-        "spitzer.irs.sh",
-        "spitzer.irs.lh",
-        "iso.sws.speed0",
-        "iso.sws.speed1",
-        "iso.sws.speed2",
-        "iso.sws.speed3",
-        "iso.sws.speed4",
-    ]
     parser = argparse.ArgumentParser()
     parser.add_argument("spectrumfile", help="name of file with observed spectrum")
     parser.add_argument("packfile", help="name of PAHFIT pack file")
     parser.add_argument(
         "instrumentname",
         # choices=instrumenttypes,
-        help="Name of the instrument. Available:" + str(instrument.packs.keys()),
+        help="Name of the instrument. Available:" + str(instrument.instruments()),
     )
     parser.add_argument(
         "--savefig",

@@ -92,9 +92,9 @@ contributors page on Github
 Reference API
 =============
 
-Base class for PAHFIT
+Model class, which serves as the main user interface for PAHFIT.
 
-.. automodapi:: pahfit.base
+.. automodapi:: pahfit.model
 
 Component models not provided by astropy.models.
 

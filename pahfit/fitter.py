@@ -44,7 +44,7 @@ class Fitter(ABC):
     def clear(self):
         """Reset model.
 
-        After reset, register_* and finalize_model can be used again.
+        After reset, register_() and finalize_model() can be used again.
 
         """
         pass
@@ -187,7 +187,7 @@ class Fitter(ABC):
         Parameters
         ----------
         component_name : str
-            One of the names provided to any of the register_*() calls
+            One of the names provided to any of the register_() calls
             made during setup. See also Fitter.components().
 
         Returns

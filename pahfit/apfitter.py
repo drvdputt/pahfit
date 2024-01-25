@@ -3,11 +3,11 @@ from pahfit.errors import PAHFITModelError
 from pahfit.component_models import (
     BlackBody1D,
     ModifiedBlackBody1D,
-    Gaussian1D,
     Drude1D,
     S07_attenuation,
     att_Drude1D,
 )
+from astropy.modeling.functional_models import Gaussian1D
 from astropy.modeling.fitting import LevMarLSQFitter
 import numpy as np
 
@@ -60,7 +60,7 @@ class APFitter(Fitter):
     def __init__(self):
         """Construct a new fitter.
 
-        After construction, use the register_* functions to start
+        After construction, use the register_() functions to start
         setting up a model, then call finalize_model().
 
         """
@@ -69,7 +69,7 @@ class APFitter(Fitter):
     def clear(self):
         """Reset model.
 
-        After reset, register_* and finalize_model can be used again.
+        After reset, register_() and finalize_model() can be used again.
 
         """
         self.additive_components = []
@@ -92,7 +92,7 @@ class APFitter(Fitter):
     def finalize_model(self):
         """Sum the registered components into one CompoundModel.
 
-        To be called after a series of "register_*()" calls, and before
+        To be called after a series of "register_()" calls, and before
         using the other functionality (fitting and evaluating).
 
         """
@@ -122,7 +122,7 @@ class APFitter(Fitter):
         kwargs : dict
             Arguments for the astropy model constructor, including a
             unique value for "name". Should be generated with
-            self._astropy_model_kwargs; the register* functions show how
+            self._astropy_model_kwargs; the register_() functions show how
             to do this for each type of feature.
 
         """

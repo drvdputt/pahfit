@@ -8,13 +8,13 @@ import matplotlib as mpl
 import os
 
 from pahfit.features.util import bounded_is_fixed
-
 from pahfit.features import Features
 from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
 from pahfit.apfitter import APFitter
 
+__all__ = ['Model']
 
 class Model:
     """This class acts as the main API for PAHFIT.
@@ -116,7 +116,7 @@ class Model:
         ----------
         fn : file name
 
-        **write_kwargs : kwargs passed to astropy.table.Table.write
+        write_kwargs : kwargs passed to astropy.table.Table.write
 
         """
         output_dir = os.path.dirname(fn)
