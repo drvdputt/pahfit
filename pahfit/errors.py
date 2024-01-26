@@ -12,3 +12,6 @@ class PAHFITPackError(Exception):
 
 class PAHFITWarning(Warning):
     pass
+
+class PAHFITUnitError(Exception):
+    pass

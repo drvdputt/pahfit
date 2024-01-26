@@ -13,6 +13,7 @@ from pahfit import instrument
 from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
 from pahfit.apfitter import APFitter
+from pahfit import units
 
 __all__ = ["Model"]
 
@@ -302,9 +303,10 @@ class Model:
 
     @staticmethod
     def _convert_spec_data(spec, z):
-        """
-        Turn astropy quantities stored in Spectrum1D into fittable
-        numbers.
+        """Convert Spectrum1D Quantities to fittable numbers.
+
+        Numbers are in internal units (either mJy or MJy / sr for the
+        flux, depending on which quantity is compatible).
 
         Also corrects for redshift.
 
@@ -314,10 +316,12 @@ class Model:
 
         xz, yz, uncz: wavelength in micron, flux, uncertainty
             corrected for redshift
+
         """
+        y_unit = units.internal_flux_unit(spec.flux.unit)
+        y = spec.flux.to(y_unit).value
         x = spec.spectral_axis.to(u.micron).value
-        y = spec.flux.value
-        unc = spec.uncertainty.array
+        unc = (spec.uncertainty.array * spec.flux.unit).to(y_unit).value
 
         # transform observed wavelength to "physical" wavelength
         xz = x / (1 + z)  # wavelength shorter
@@ -383,6 +387,7 @@ class Model:
         """
         # parse spectral data
         self.features.meta["user_unit"]["flux"] = spec.flux.unit
+
         inst, z = self._parse_instrument_and_redshift(spec, redshift)
         x, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
 
@@ -760,7 +765,10 @@ class Model:
         if "flux" not in self.features.meta["user_unit"]:
             flux_quantity = flux_values * u.dimensionless_unscaled
         else:
-            flux_quantity = flux_values * self.features.meta["user_unit"]["flux"]
+            user_unit = self.features.meta["user_unit"]["flux"]
+            flux_quantity = (flux_values * units.internal_flux_unit(user_unit)).to(
+                user_unit
+            )
 
         return Spectrum1D(spectral_axis=wav, flux=flux_quantity)
 
