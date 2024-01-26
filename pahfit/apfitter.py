@@ -6,10 +6,16 @@ from pahfit.component_models import (
     Drude1D,
     S07_attenuation,
     att_Drude1D,
+    AreaGaussian1D,
+    PowerDrude1D,
+    PowerGaussian1D,
 )
+from astropy import units as u
 from astropy.modeling.functional_models import Gaussian1D
 from astropy.modeling.fitting import LevMarLSQFitter
 import numpy as np
+
+POWER_LINE = True
 
 
 class APFitter(Fitter):
@@ -175,10 +181,17 @@ class APFitter(Fitter):
 
         """
         self.component_types[name] = "line"
-        kwargs = self._astropy_model_kwargs(
-            name, ["amplitude", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
-        )
-        self._register_component(Gaussian1D, **kwargs)
+
+        if POWER_LINE:
+            kwargs = self._astropy_model_kwargs(
+                name, ["power", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
+            )
+            self._register_component(PowerGaussian1D, **kwargs)
+        else:
+            kwargs = self._astropy_model_kwargs(
+                name, ["amplitude", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
+            )
+            self._register_component(Gaussian1D, **kwargs)
 
     def register_dust_feature(self, name, power, wavelength, fwhm):
         """Register a Drude1D.
@@ -188,9 +201,9 @@ class APFitter(Fitter):
         """
         self.component_types[name] = "dust_feature"
         kwargs = self._astropy_model_kwargs(
-            name, ["amplitude", "x_0", "fwhm"], [power, wavelength, fwhm]
+            name, ["power", "x_0", "fwhm"], [power, wavelength, fwhm]
         )
-        self._register_component(Drude1D, **kwargs)
+        self._register_component(PowerDrude1D, **kwargs)
 
     def register_attenuation(self, name, tau):
         """Register the S07 attenuation component.
@@ -245,6 +258,12 @@ class APFitter(Fitter):
         Retrieval of uncertainties and fit details is yet to be
         implemented.
 
+        CAVEAT: flux unit (yz) is still ambiguous, since it can be flux
+        density or intensity, according to the options defined in
+        pahfit.units. After the fit, the return units of "power" in
+        get_results depend on the given spectrum (they will be flux unit
+        times wavelenght unit).
+
         Parameters
         ----------
         xz : array
@@ -288,6 +307,10 @@ class APFitter(Fitter):
         (generally the inverse conversions of what was done in the
         register function).
 
+        NOTE: for now, the return units for "power" are (flux unit) x
+        (micron). Still ambiguous, because the flux unit could be flux
+        density or intensity.
+
         Parameters
         ----------
         component_name : str
@@ -319,14 +342,21 @@ class APFitter(Fitter):
                 "tau": component.amplitude.value,
             }
         elif c_type == "line":
-            return {
-                "power": component.amplitude.value,
-                "wavelength": component.mean.value,
-                "fwhm": component.stddev.value * 2.355,
-            }
+            if POWER_LINE:
+                return {
+                    "power": component.power.value,
+                    "wavelength": component.mean.value,
+                    "fwhm": component.stddev.value * 2.355,
+                }
+            else:
+                return {
+                    "power": component.amplitude.value,
+                    "wavelength": component.mean.value,
+                    "fwhm": component.stddev.value * 2.355,
+                }
         elif c_type == "dust_feature":
             return {
-                "power": component.amplitude.value,
+                "power": component.power.value,
                 "wavelength": component.x_0.value,
                 "fwhm": component.fwhm.value,
             }

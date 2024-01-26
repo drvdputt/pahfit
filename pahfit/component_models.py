@@ -3,8 +3,133 @@ from scipy import interpolate
 from astropy.modeling.physical_models import Drude1D
 from astropy.modeling import Fittable1DModel
 from astropy.modeling import Parameter
+from astropy import constants
+from astropy import units as u
+from pahfit import units
 
-__all__ = ["BlackBody1D", "ModifiedBlackBody1D", "S07_attenuation", "att_Drude1D"]
+__all__ = [
+    "BlackBody1D",
+    "ModifiedBlackBody1D",
+    "S07_attenuation",
+    "att_Drude1D",
+    "AreaGaussian1D",
+]
+
+SQRT2PI = np.sqrt(2 * np.pi)
+CMICRON = constants.c.to(u.micron / u.s).value
+
+
+class PowerDrude1D(Fittable1DModel):
+    """Drude profile with amplitude determined by power.
+
+    This implementation is 'unitful' because 'power' is defined as
+    integral over frequency, while the profile is evaluated as a
+    function of wavelength. If we want the output y to have a certain
+    unit(y), then the power parameter needs to have unit(y) * unit(c) /
+    unit(x).
+
+    The profile is a function of x (the wavelength), while the power is
+    integral of profile over c / x. So the unit choice of c matters too.
+    Example: if x_0 and fwhm are in micron, and the target flux is in
+    u(flux), then the power parameter power will have unit u(flux) * Hz,
+    e.g. mJy * Hz (if unit(c) was chosens as unit(x) Hz).
+
+    In the implementation, we use the 'internal' units defined in
+    pahfit.units to convert the input (power) and output (flux). We
+    prevent ambiguities by enforcing a single unit for each parameter.
+    There is one remaining problem: we don't know the flux units, so
+    it's still ambiguous if power needs to be in intensity_power or
+    flux_density_power units.
+
+    An alternative approach, would be to do the fitting in Fnu(nu)
+    space, instead of Fnu(lambda). In that case, we need an Fnu(nu)
+    formulation of all the profiles and continuum functions we use.
+
+    """
+
+    power = Parameter(min=0.0)
+    x_0 = Parameter(min=0.0)
+    fwhm = Parameter(default=1, min=0.0)
+
+    @staticmethod
+    def evaluate(x, power, x_0, fwhm):
+        """Smith, et al. (2007) dust features model. Calculation is for
+        a Drude profile (equation in section 4.1.4).
+
+        The intensity profile as a function of wavelength is
+
+        Inu(lambda) = (b * g**2) / ((lambda / x0 - x0 / lambda)**2 + g**2)
+
+        With
+        b = central intensity
+        g = fwhm / x0
+        x0 = central wavelength
+
+        The integrated power (Fnu integrated over dnu) of the drude
+        profile is
+
+        P = (pi*c/2)*(b * g / x0)
+
+        Which can be solved for the central intensity.
+
+        b = (P * 2 * x0) / (pi * c * g) = 2P / (pi nu0 g).
+
+        The output unit for the profile is unit(P) * Hz-1. The fitted
+        value for P will be large, because of the nu0 factor in the
+        denominator. We can make help the fitter by letting it deal more
+        reasonable numbers. We do this by using 'power' as the fit
+        parameter, which is the power in internal units, and is
+        converted to P and then b in the implementation of this
+        evaluation function.
+
+        Parameters
+        ----------
+        power : float
+        fwhm : float
+        central intensity (x_0) : float
+
+        """
+        g = fwhm / x_0
+
+        # choose intensity or flux density here
+        P = power * units.intensity_power
+        output_unit = units.intensity
+        lamb = x_0 * units.wavelength
+
+        # amplitude in the right output unit
+        # TODO: optimize out the constant unit factor
+        b = (2 * P * lamb / (np.pi * constants.c * g)).to(output_unit).value
+
+        # e.g. c = micron Hz -> b = flux unit = power Hz-1
+        # so power unit needs to be flux unit Hz
+
+        return b * g**2 / ((x / x_0 - x_0 / x) ** 2 + g**2)
+
+
+class PowerGaussian1D(Fittable1DModel):
+    """Gaussian profile with amplitude derived from power.
+
+    Implementation and caveats analogous to PowerDrude1D.
+    """
+
+    power = Parameter(min=0.0)
+    mean = Parameter()
+    stddev = Parameter(default=1, min=0.0)
+
+    @staticmethod
+    def evaluate(x, power, mean, stddev):
+        P = power * units.intensity_power
+        s = stddev * units.wavelength
+        m = mean * units.wavelength
+        output_unit = units.intensity
+
+        # amplitude in per-wavelength units is P / (s sqrt(2pi))
+        # converting to per-frequency units gives (P lambda**2) / (c s sqrt(2pi))
+        # or approximately (P m**2) / (c s sqrt(2pi))
+        amplitude = ((P * m**2) / (constants.c * s * SQRT2PI)).to(output_unit).value
+
+        # TODO: optimize out the constant unit factor
+        return amplitude * np.exp(-0.5 * np.square((x - mean) / stddev))
 
 
 class BlackBody1D(Fittable1DModel):
@@ -20,12 +145,11 @@ class BlackBody1D(Fittable1DModel):
 
     @staticmethod
     def evaluate(x, amplitude, temperature):
-        """
-        """
+        """ """
         return (
             amplitude
             * 3.97289e13
-            / x ** 3
+            / x**3
             / (np.exp(1.4387752e4 / x / temperature) - 1.0)
         )
 
@@ -82,7 +206,9 @@ class S07_attenuation(Fittable1DModel):
         # Extend kvt profile to shorter wavelengths
         if min(in_x) < min(kvt_wav):
             kvt_wav_short = in_x[in_x < min(kvt_wav)]
-            kvt_int_short_tmp = min(kvt_int) * np.exp(2.03 * (kvt_wav_short - min(kvt_wav)))
+            kvt_int_short_tmp = min(kvt_int) * np.exp(
+                2.03 * (kvt_wav_short - min(kvt_wav))
+            )
             # Since kvt_int_shoft_tmp does not reach min(kvt_int),
             # we scale it to stitch it.
             kvt_int_short = kvt_int_short_tmp * (kvt_int[0] / max(kvt_int_short_tmp))

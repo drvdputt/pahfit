@@ -14,6 +14,7 @@ from pahfit.errors import PAHFITModelError
 from pahfit.component_models import BlackBody1D, S07_attenuation
 from pahfit.apfitter import APFitter
 from pahfit import units
+from astropy import constants
 
 __all__ = ["Model"]
 
@@ -263,7 +264,8 @@ class Model:
             fwhm = instrument.fwhm(inst, w, as_bounded=True)[0][0]
             return fwhm
 
-        def amp_guess(row, fwhm):
+        def power_guess(row, fwhm):
+            # local integration for the lines
             w = row["wavelength"][0]
             if not instrument.within_segment(w, inst):
                 return 0
@@ -276,26 +278,44 @@ class Model:
             ypoints = yz[xz_window]
             if np.count_nonzero(xz_window) >= 2:
                 # difference between flux in window and flux around it
-                power_guess = integrate.trapezoid(yz[xz_window], xz[xz_window])
+                Fnu_dlambda = integrate.trapezoid(yz[xz_window], xz[xz_window])
                 # subtract continuum estimate, but make sure we don't go negative
                 continuum = (ypoints[0] + ypoints[-1]) / 2 * (xpoints[-1] - xpoints[0])
-                if continuum < power_guess:
-                    power_guess -= continuum
+                if continuum < Fnu_dlambda:
+                    Fnu_dlambda -= continuum
             else:
-                power_guess = 0
-            return power_guess / fwhm
+                Fnu_dlambda = 0
 
-        # same amplitude for all dust features (guessing too wel can
-        # bias the fit too much)
-        loop_over_non_fixed("dust_feature", "power", lambda row: some_flux)
+            # this is an unphysical power (Fnu * dlambda), but we
+            # convert to Fnu dnu = Fnu dnu/dlambda dlambda = Fnu c /
+            # lambda **2 dlambda
+            Fnu_dlambda *= units.intensity * units.wavelength
+            Fnu_dnu = Fnu_dlambda * constants.c / (w * units.wavelength) ** 2
+            return Fnu_dnu.to(units.intensity_power).value
+
+        def drude_power_guess(row):
+            # same amplitude for all dust features (guessing too wel can
+            # bias the fit too much)
+            fwhm = row["fwhm"][0] * units.wavelength
+            wave = row["wavelength"][0] * units.wavelength
+            delta_freq = np.abs(
+                constants.c / (wave - fwhm) - constants.c / (wave + fwhm)
+            )
+            # TODO: make units.intensity switch to units.flux_density when needed
+            power = some_flux * units.intensity * delta_freq
+            return power.to(units.intensity_power).value
+
+        loop_over_non_fixed("dust_feature", "power", drude_power_guess)
 
         if integrate_line_flux:
             # calc line amplitude using instrumental fwhm and integral over data
             loop_over_non_fixed(
-                "line", "power", lambda row: amp_guess(row, line_fwhm_guess(row))
+                "line", "power", lambda row: power_guess(row, line_fwhm_guess(row))
             )
         else:
-            loop_over_non_fixed("line", "power", lambda row: some_flux)
+            loop_over_non_fixed(
+                "line", "power", lambda row: some_flux * line_fwhm_guess(row)
+            )
 
         # set the fwhms in the features table
         if calc_line_fwhm:
