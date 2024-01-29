@@ -12,7 +12,8 @@ __all__ = [
     "ModifiedBlackBody1D",
     "S07_attenuation",
     "att_Drude1D",
-    "AreaGaussian1D",
+    "PowerDrude1D",
+    "PowerGaussian1D",
 ]
 
 SQRT2PI = np.sqrt(2 * np.pi)
@@ -50,6 +51,18 @@ class PowerDrude1D(Fittable1DModel):
     power = Parameter(min=0.0)
     x_0 = Parameter(min=0.0)
     fwhm = Parameter(default=1, min=0.0)
+
+    intensity_amplitude_factor = (
+        (units.intensity_power * units.wavelength / (constants.c * np.pi))
+        .to(units.intensity)
+        .value
+    )
+
+    flux_density_amplitude_factor = (
+        (units.flux_power * units.wavelength / (constants.c * np.pi))
+        .to(units.flux_density)
+        .value
+    )
 
     @staticmethod
     def evaluate(x, power, x_0, fwhm):
@@ -91,18 +104,16 @@ class PowerDrude1D(Fittable1DModel):
         """
         g = fwhm / x_0
 
-        # choose intensity or flux density here
-        P = power * units.intensity_power
-        output_unit = units.intensity
-        lamb = x_0 * units.wavelength
-
         # amplitude in the right output unit
-        # TODO: optimize out the constant unit factor
-        b = (2 * P * lamb / (np.pi * constants.c * g)).to(output_unit).value
-
+        # P = power * units.intensity_power
+        # output_unit = units.intensity
+        # lamb = x_0 * units.wavelength
+        # b = (2 * P * lamb / (np.pi * constants.c * g)).to(output_unit).value
         # e.g. c = micron Hz -> b = flux unit = power Hz-1
         # so power unit needs to be flux unit Hz
 
+        # use predetermined unit factor (already includes c, pi, and all units)
+        b = 2 * power * x_0 / (np.pi * g) * PowerDrude1D.intensity_amplitude_factor
         return b * g**2 / ((x / x_0 - x_0 / x) ** 2 + g**2)
 
 
@@ -110,26 +121,64 @@ class PowerGaussian1D(Fittable1DModel):
     """Gaussian profile with amplitude derived from power.
 
     Implementation and caveats analogous to PowerDrude1D.
+
+    The amplitude of a gaussian line of power P in per-wavelength units
+    for the flux, is P / (stddev sqrt(2 pi)).
+
+    Converting to per-frequency units, gives an amplitude of Fnu of
+    A = P * lambda**2 / (c * stddev sqrt(2 pi))
+
+    which we approximate here as
+    A = P * mean**2 / (c * stddev sqrt(2 pi)).
+
+    Constant conversion factor to put A in the right units:
+    (unit(power) * unit(wavelength)**2 / (c * unit(wavelength))).to(unit.A)
+
     """
 
     power = Parameter(min=0.0)
     mean = Parameter()
     stddev = Parameter(default=1, min=0.0)
 
+    intensity_amplitude_factor = (
+        (
+            units.intensity_power
+            * (units.wavelength) ** 2
+            / (constants.c * units.wavelength)
+        )
+        .to(units.intensity)
+        .value
+    )
+
+    flux_density_amplitude_factor = (
+        (units.flux_power * (units.wavelength) ** 2 / (constants.c * units.wavelength))
+        .to(units.flux_density)
+        .value
+    )
+
     @staticmethod
     def evaluate(x, power, mean, stddev):
-        P = power * units.intensity_power
-        s = stddev * units.wavelength
-        m = mean * units.wavelength
-        output_unit = units.intensity
+        """Evaluate F_nu(lambda) with a power.
 
-        # amplitude in per-wavelength units is P / (s sqrt(2pi))
-        # converting to per-frequency units gives (P lambda**2) / (c s sqrt(2pi))
-        # or approximately (P m**2) / (c s sqrt(2pi))
-        amplitude = ((P * m**2) / (constants.c * s * SQRT2PI)).to(output_unit).value
+        See class details for equations and unit notes."""
 
-        # TODO: optimize out the constant unit factor
-        return amplitude * np.exp(-0.5 * np.square((x - mean) / stddev))
+        # Astropy unit version
+        # P = power * units.intensity_power
+        # s = stddev * units.wavelength
+        # m = mean * units.wavelength
+        # output_unit = units.intensity
+        # A = ((P * m**2) / (constants.c * s * SQRT2PI)).to(output_unit).value
+
+        # Single factor version (probably faster than dealing with
+        # astropy units every time). Factor c is already in it.
+        A = (
+            power
+            * mean**2
+            / (stddev * SQRT2PI)
+            * PowerGaussian1D.intensity_amplitude_factor
+        )
+
+        return A * np.exp(-0.5 * np.square((x - mean) / stddev))
 
 
 class BlackBody1D(Fittable1DModel):

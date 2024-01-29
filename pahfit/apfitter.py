@@ -6,7 +6,6 @@ from pahfit.component_models import (
     Drude1D,
     S07_attenuation,
     att_Drude1D,
-    AreaGaussian1D,
     PowerDrude1D,
     PowerGaussian1D,
 )
@@ -14,8 +13,6 @@ from astropy import units as u
 from astropy.modeling.functional_models import Gaussian1D
 from astropy.modeling.fitting import LevMarLSQFitter
 import numpy as np
-
-POWER_LINE = True
 
 
 class APFitter(Fitter):
@@ -174,29 +171,24 @@ class APFitter(Fitter):
         self._register_component(ModifiedBlackBody1D, **kwargs)
 
     def register_line(self, name, power, wavelength, fwhm):
-        """Register a Gaussian1D.
+        """Register a PowerGaussian1D
 
-        Analogous. Converts fwhm to stddev internally. Will be replaced
-        by a Gaussian model that uses area instead of amplitude.
+        Analogous. Uses an implementation of the Gaussian profile, that
+        directly fits the power based on the internal PAHFIT units.
 
         """
         self.component_types[name] = "line"
 
-        if POWER_LINE:
-            kwargs = self._astropy_model_kwargs(
-                name, ["power", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
-            )
-            self._register_component(PowerGaussian1D, **kwargs)
-        else:
-            kwargs = self._astropy_model_kwargs(
-                name, ["amplitude", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
-            )
-            self._register_component(Gaussian1D, **kwargs)
+        kwargs = self._astropy_model_kwargs(
+            name, ["power", "mean", "stddev"], [power, wavelength, fwhm / 2.355]
+        )
+        self._register_component(PowerGaussian1D, **kwargs)
 
     def register_dust_feature(self, name, power, wavelength, fwhm):
-        """Register a Drude1D.
+        """Register a PowerDrude1D.
 
-        Analogous. Will be replaced by AreaDrude.
+        Analogous. Uses an implementation of the Drude profile that
+        directly fits the power based on the internal PAHFIT units.
 
         """
         self.component_types[name] = "dust_feature"
@@ -342,18 +334,11 @@ class APFitter(Fitter):
                 "tau": component.amplitude.value,
             }
         elif c_type == "line":
-            if POWER_LINE:
-                return {
-                    "power": component.power.value,
-                    "wavelength": component.mean.value,
-                    "fwhm": component.stddev.value * 2.355,
-                }
-            else:
-                return {
-                    "power": component.amplitude.value,
-                    "wavelength": component.mean.value,
-                    "fwhm": component.stddev.value * 2.355,
-                }
+            return {
+                "power": component.power.value,
+                "wavelength": component.mean.value,
+                "fwhm": component.stddev.value * 2.355,
+            }
         elif c_type == "dust_feature":
             return {
                 "power": component.power.value,
