@@ -198,8 +198,10 @@ class Model:
         wmin = min(xz)
         # wmax = max(xz)
 
-        # reasonable flux value
-        some_flux = 0.5 * np.median(yz)
+        # Some useful quantities for guessing
+        median_flux = np.median(yz)
+        Flambda = yz * units.intensity * (xz * units.wavelength) ** -2 * constants.c
+        total_power = np.trapz(Flambda, xz * units.wavelength)
 
         # simple linear interpolation function for spectrum
         sp = interpolate.interp1d(xz, yz)
@@ -240,7 +242,7 @@ class Model:
             bb = BlackBody1D(1, temp)
             bbmax = bb(fmax_lam)
             # set maximum of blackbody equal to some reasonable value
-            amp_guess = some_flux / bbmax
+            amp_guess = median_flux / bbmax
             # if fmax_lam >= wmin and fmax_lam <= wmax:
             #     w = fmax_lam
             #     flux_ref = sp(w)
@@ -294,16 +296,10 @@ class Model:
             return Fnu_dnu.to(units.intensity_power).value
 
         def drude_power_guess(row):
-            # same amplitude for all dust features (guessing too wel can
-            # bias the fit too much)
+            # weigh power estimate by fwhm
             fwhm = row["fwhm"][0] * units.wavelength
-            wave = row["wavelength"][0] * units.wavelength
-            delta_freq = np.abs(
-                constants.c / (wave - fwhm) - constants.c / (wave + fwhm)
-            )
-            # TODO: make units.intensity switch to units.flux_density when needed
-            power = some_flux * units.intensity * delta_freq
-            return power.to(units.intensity_power).value
+            delta_w = spec.spectral_axis[-1] - spec.spectral_axis[0]
+            return (total_power * fwhm / delta_w).to(units.intensity_power).value
 
         loop_over_non_fixed("dust_feature", "power", drude_power_guess)
 
@@ -314,7 +310,7 @@ class Model:
             )
         else:
             loop_over_non_fixed(
-                "line", "power", lambda row: some_flux * line_fwhm_guess(row)
+                "line", "power", lambda row: median_flux * line_fwhm_guess(row)
             )
 
         # set the fwhms in the features table
