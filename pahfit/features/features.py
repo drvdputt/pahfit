@@ -115,7 +115,7 @@ class Features(Table):
     _kind_params = {'starlight': {'temperature', 'tau'},
                     'dust_continuum': {'temperature', 'tau'},
                     'line': {'wavelength', 'power'},  # 'fwhm', Instrument Pack detail!
-                    'dust_feature': {'wavelength', 'fwhm', 'power'},
+                    'dust_feature': {'wavelength', 'fwhm', 'power', 'asymmetry'},
                     'attenuation': {'model', 'tau', 'geometry'},
                     'absorption': {'wavelength', 'fwhm', 'tau', 'geometry'}}
 
