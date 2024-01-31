@@ -254,7 +254,7 @@ class Model:
             #     flux_ref = yz[np.argmin(xz)]
 
             # amp_guess = flux_ref / bb(w)
-            return amp_guess / nbb
+            return amp_guess / nbb / 10
 
         loop_over_non_fixed("dust_continuum", "tau", dust_continuum_guess)
 
