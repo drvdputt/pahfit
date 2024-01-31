@@ -414,7 +414,9 @@ class Model:
         # check if observed spectrum is compatible with instrument model
         instrument.check_range([min(x), max(x)], inst)
 
-        self.fitter = self._construct_model(inst, z, use_instrument_fwhm)
+        self.fitter = self._construct_model(
+            inst, z, x=x, use_instrument_fwhm=use_instrument_fwhm
+        )
         self.fitter.fit(xz, yz, uncz, verbose=verbose, maxiter=maxiter)
 
         # copy the fit results to the features table
@@ -788,11 +790,15 @@ class Model:
 
         return Spectrum1D(spectral_axis=wav, flux=flux_quantity)
 
-    def _excluded_features(self, instrumentname, redshift):
+    def _excluded_features(self, instrumentname, redshift, x=None):
         """Determine excluded features Based on instrument wavelength range.
 
          instrumentname : str
             Qualified instrument name
+
+         x : array
+            Optional observed wavelength grid. Exclude any lines and
+            dust features outside of this range.
 
         Returns
         -------
@@ -800,7 +806,13 @@ class Model:
         are far outside the wavelength range.
         """
         observed_wavs = self.features["wavelength"][:, 0] * (1 + redshift)
+
+        # has wavelength and not within instrument range
         is_outside = ~instrument.within_segment(observed_wavs, instrumentname)
+
+        # also apply observed range if provided
+        if x is not None:
+            is_outside |= (observed_wavs < np.amin(x)) | (observed_wavs > np.amax(x))
 
         # restriction on the kind of feature that can be excluded
         excludable = ["line", "dust_feature", "absorption"]
@@ -810,7 +822,9 @@ class Model:
 
         return is_outside & is_excludable
 
-    def _construct_model(self, instrumentname, redshift, use_instrument_fwhm=True):
+    def _construct_model(
+        self, instrumentname, redshift, x=None, use_instrument_fwhm=True
+    ):
         """Convert features table to Fitter instance.
 
         General concept: for every row of the features table, call a
@@ -819,19 +833,18 @@ class Model:
         model (with the details hidden under the hood of that class).
 
         Any unit conversions and model-specific things need to happen
-        BEFORE giving them to the fitters. So to be clear, the
-        instrument-derived FWHM needs to be passed here. Internally, the
-        fitters may do additional unit conversions, to avoid numerical
-        issues, or to deal with specific inputs for the functional
-        models they use.
+        BEFORE giving them to the fitters.
+        - The instrument-derived FWHM is determined here using the
+          instrument model (the Fitter does not need to know about this
+          detail).
+        - Features outside the appropriate wavelength range should not
+          be added to the Fitter: the "trimming" is done here, using the
+          given wavelength range xz (optional).
 
-        For features that do not correspond to the data range,
-        components will not be added to the Fitter. At the end of fit(),
-        those values will not be updated. TODO: (en/dis)abled flagging.
-        We still keep their parameter values around (as opposed to
-        removing the rows entirely). When data with a larger wavelength
-        range are passed during another fitting call, those features can
-        be unmasked if necessary.
+        TODO: (en/dis)abled flagging. We still keep their parameter
+        values around (as opposed to removing the rows entirely). When
+        data with a larger wavelength range are passed during another
+        fitting call, those features can be unmasked if necessary.
 
         Some nuances in the behavior
         - If a line has a fwhm set, it will be ignored, and replaced by
@@ -848,7 +861,7 @@ class Model:
         # Fitting implementation can be changed by choosing another Fitter class
         fitter = APFitter()
 
-        excluded = self._excluded_features(instrumentname, redshift)
+        excluded = self._excluded_features(instrumentname, redshift, x)
 
         for row in self.features[~excluded]:
             kind = row["kind"]
