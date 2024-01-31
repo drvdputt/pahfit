@@ -89,7 +89,8 @@ class BoundedParTableFormatter(TableFormatter):
                     strings.append(line.replace(".. --", "(fixed)"))
                 else:
                     # all values
-                    strings.append(f"{col[i, 0]} ({col[i, 1]}, {col[i, 2]})")
+                    # strings.append(f"{col[i, 0]} ({col[i, 1]}, {col[i, 2]})")
+                    strings.append(fmt_func(col.info.format or "0.4g")(col[i]))
 
                 # print("before:", repr(line))
                 # print("after:", repr(strings[-1]))
