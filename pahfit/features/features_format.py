@@ -77,10 +77,13 @@ class BoundedParTableFormatter(TableFormatter):
 
             # modify output of the numerical lines
             # data index = line index - n_header
-            for i, line in enumerate(default_strings[outs["n_header"] :]):
+            after_ellipsis = False
+            data_strings = default_strings[outs["n_header"] :]
+            for i, line in enumerate(data_strings):
                 if "..." in line or "table" in line:
                     # generic ellipsis line
                     strings.append(line)
+                    after_ellipsis = True
                 elif "-- .. --" in line:
                     # all masked
                     strings.append(line.replace("-- .. --", "--"))
@@ -88,11 +91,17 @@ class BoundedParTableFormatter(TableFormatter):
                     # value but masked bound
                     strings.append(line.replace(".. --", "(fixed)"))
                 else:
-                    # all values
-                    # strings.append(f"{col[i, 0]} ({col[i, 1]}, {col[i, 2]})")
-                    strings.append(fmt_func(col.info.format or "0.4g")(col[i]))
+                    # deal with case where a "..." row is present, by counting from the end
+                    # show -1 if at the last data string
+                    if after_ellipsis:
+                        d_from_end = len(data_strings) - i
+                        if outs['show_length']:
+                            # need to add 1 because "length = xx rows" is the last row in this case
+                            d_from_end -= 1
+                        row_index = -d_from_end
+                    else:
+                        row_index = i
 
-                # print("before:", repr(line))
-                # print("after:", repr(strings[-1]))
+                    strings.append(fmt_func(col.info.format or "0.4g")(col[row_index]))
 
         return strings, outs
