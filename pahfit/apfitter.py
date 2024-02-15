@@ -3,15 +3,12 @@ from pahfit.errors import PAHFITModelError
 from pahfit.component_models import (
     BlackBody1D,
     ModifiedBlackBody1D,
-    Drude1D,
     S07_attenuation,
     att_Drude1D,
     PowerDrude1D,
     PowerGaussian1D,
 )
-from astropy import units as u
-from astropy.modeling.functional_models import Gaussian1D
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import LevMarLSQFitter, TRFLSQFitter, DogBoxLSQFitter, LMLSQFitter
 import numpy as np
 
 
@@ -274,7 +271,36 @@ class APFitter(Fitter):
         # make sure there are no zero uncertainties either
         mask = np.isfinite(xz) & np.isfinite(yz) & np.isfinite(w)
 
-        fit = LevMarLSQFitter(calc_uncertainties=True)
+        self.fit_info = []
+
+        # fit = LMLSQFitter(calc_uncertainties=True)
+        # astropy_result = fit(
+        #     self.model,
+        #     xz[mask],
+        #     yz[mask],
+        #     weights=w[mask],
+        #     maxiter=maxiter,
+        #     epsilon=1e-10,
+        #     acc=1e-15,
+        # )
+        # self.fit_info.append(fit.fit_info)
+        # self.model = astropy_result
+
+        # fit = LevMarLSQFitter(calc_uncertainties=True)
+        # astropy_result = fit(
+        #     self.model,
+        #     xz[mask],
+        #     yz[mask],
+        #     weights=w[mask],
+        #     maxiter=maxiter,
+        #     epsilon=1e-10,
+        #     acc=1e-10,
+        # )
+        # self.fit_info0 = fit.fit_info
+        # self.model = astropy_result
+
+        # # # try both in a row? First one as intial guess why not
+        fit = TRFLSQFitter(calc_uncertainties=True)
         astropy_result = fit(
             self.model,
             xz[mask],
@@ -284,11 +310,10 @@ class APFitter(Fitter):
             epsilon=1e-10,
             acc=1e-10,
         )
-        self.fit_info = fit.fit_info
+        self.model = astropy_result
+
         if verbose:
             print(fit.fit_info["message"])
-
-        self.model = astropy_result
 
     def get_result(self, component_name):
         """Retrieve results from astropy model component.
