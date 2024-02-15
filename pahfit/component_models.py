@@ -20,6 +20,45 @@ SQRT2PI = np.sqrt(2 * np.pi)
 CMICRON = constants.c.to(u.micron / u.s).value
 
 
+class AsymDrude1D(Fittable1DModel):
+    """Equation 4 from Gordon+21, inspired by Stancik & Brauns 08
+
+    D(lambda) = (g / x0)**2 / ((x/x0 - x0/x)**2 + (g/x0)**2)
+
+    with g(x) = 2 g0 / (1 + exp(a (x - x0)))
+
+    I prefer the prescription g(x) = 2 g0 / (1 + exp(2a (x - x0)/x).
+    Interpretation: At a wavelength excursion of 0.1, the fwhm will have
+    increase 10% * a to first order.
+
+    What this does with the one-sided HWHM is unclear.
+
+    So the width changes from a constant 2g0 at -infty, has the steepest
+    change when x = x0, and goes down to 0 for large x (case a
+    positive).
+
+    https://www.desmos.com/calculator/77petdtjma
+
+    The resulting profile does not have a closed form integral. But the
+    integral from 0 to infinity is still finite. To start, I can just
+    define 'power' as "the power of the symmetric profile" and just
+    issue a warning that the parameter loses its physical meaning when
+    the asymmetry is large. The real power can be approximated a
+    posteriori through numerical integration.
+
+    Alternate idea for consideration: asymmetric lorentzian
+
+    L(x) = 1 / (1 + 4((x-x0)/FWHM)**2)
+
+    """
+
+    power = Parameter(min=0.0)
+    x_0 = Parameter(min=0.0)
+    fwhm = Parameter(default=1, min=0.0)
+
+    pass
+
+
 class PowerDrude1D(Fittable1DModel):
     """Drude profile with amplitude determined by power.
 
