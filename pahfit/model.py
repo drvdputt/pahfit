@@ -435,9 +435,17 @@ class Model:
         # components that were set up by _construct_model. Having an
         # ENABLED/DISABLED flag for every feature would be a nice
         # alternative (and clear for the user).
+
         for name in fitter.components():
             for column, value in fitter.get_result(name).items():
-                self.features.loc[name][column][0] = value
+                try:
+                    i = np.where(self.features['name'] == name)[0]
+                    self.features[column][i, 0] = value
+                except Exception as e:
+                    print(f"Could not assign to name {name} in features table. Some diagnostic output below")
+                    print(f"Index i is {i}")
+                    print("Features table:", self.features)
+                    raise e
 
     def info(self):
         """Print out the last fit results."""
