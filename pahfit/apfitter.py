@@ -232,7 +232,7 @@ class APFitter(Fitter):
         """
         return self.model(xz)
 
-    def fit(self, xz, yz, uncz, verbose=False, maxiter=10000):
+    def fit(self, xz, yz, uncz, maxiter=10000):
         """Fit the internal model using the astropy fitter.
 
         The fitter class is unit agnostic, and deal with the numbers the
@@ -311,9 +311,7 @@ class APFitter(Fitter):
             acc=1e-10,
         )
         self.model = astropy_result
-
-        if verbose:
-            print(fit.fit_info["message"])
+        self.message = fit.fit_info["message"]
 
     def get_result(self, component_name):
         """Retrieve results from astropy model component.

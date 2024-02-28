@@ -417,10 +417,13 @@ class Model:
         self.fitter = self._construct_model(
             inst, z, x=x, use_instrument_fwhm=use_instrument_fwhm
         )
-        self.fitter.fit(xz, yz, uncz, verbose=verbose, maxiter=maxiter)
+        self.fitter.fit(xz, yz, uncz, maxiter=maxiter)
 
         # copy the fit results to the features table
         self._ingest_fit_result_to_features(self.fitter)
+
+        if verbose:
+            print(self.fitter.message)
 
     def _ingest_fit_result_to_features(self, fitter: APFitter):
         """Copy the results from a Fitter to the features table
@@ -435,6 +438,8 @@ class Model:
         # components that were set up by _construct_model. Having an
         # ENABLED/DISABLED flag for every feature would be a nice
         # alternative (and clear for the user).
+
+        self.features.meta['fitter_message'] = fitter.message
 
         for name in fitter.components():
             for column, value in fitter.get_result(name).items():
