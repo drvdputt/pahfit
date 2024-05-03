@@ -408,8 +408,8 @@ class Model:
         x, _, _, xz, yz, uncz = self._convert_spec_data(spec, z)
 
         # save these as part of the model (will be written to disk too)
-        self.features.meta["redshift"] = inst
-        self.features.meta["instrument"] = z
+        self.features.meta["instrument"] = inst
+        self.features.meta["redshift"] = z
 
         # check if observed spectrum is compatible with instrument model
         instrument.check_range([min(x), max(x)], inst)
