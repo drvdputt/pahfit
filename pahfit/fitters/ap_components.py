@@ -5,8 +5,25 @@ from astropy.modeling import Fittable1DModel
 from astropy.modeling import Parameter
 from astropy import constants
 from pahfit import units
+from numba import jit
 
 __all__ = ["BlackBody1D", "ModifiedBlackBody1D", "S07_attenuation", "att_Drude1D"]
+
+
+@jit
+def bb(x, amplitude, temperature):
+    return (
+        amplitude
+        * 3.9728917e13  # 2 h c/µm^3 -> MJy
+        / x**3
+        / (np.exp(1.4387752e4 / x / temperature) - 1.0)  # h c/micron k K
+    )
+
+
+@jit
+def drude(x, x_0, g, b):
+    g2 = g**2
+    return b * g2 / ((x / x_0 - x_0 / x) ** 2 + g2)
 
 
 class BlackBody1D(Fittable1DModel):
@@ -21,20 +38,11 @@ class BlackBody1D(Fittable1DModel):
     temperature = Parameter()
 
     @staticmethod
-    def evaluate_not_normalized(x, amplitude, temperature):
-        """ """
-        return (
-            amplitude
-            * 3.9728917e13 # 2 h c/µm^3 -> MJy
-            / x**3
-            / (np.exp(1.4387752e4 / x / temperature) - 1.0)  # h c/micron k K
-        )
-
-    @staticmethod
+    # @jit
     def evaluate(x, amplitude, temperature):
         """ """
         norm = 1e-9
-        return norm * BlackBody1D.evaluate_not_normalized(x, amplitude, temperature)
+        return norm * bb(x, amplitude, temperature)
 
 
 class ModifiedBlackBody1D(BlackBody1D):
@@ -43,10 +51,10 @@ class ModifiedBlackBody1D(BlackBody1D):
     """
 
     @staticmethod
+    # @jit
     def evaluate(x, amplitude, temperature):
-        norm = (temperature / 50)**-8
-        bb = BlackBody1D.evaluate_not_normalized(x, amplitude, temperature)
-        return norm * bb * ((9.7 / x) ** 2)
+        norm = (temperature / 50) ** -8
+        return norm * bb(x, amplitude, temperature) * ((9.7 / x) ** 2)
 
 
 class S07_attenuation(Fittable1DModel):
@@ -147,6 +155,15 @@ class att_Drude1D(Fittable1DModel):
             return (1.0 - np.exp(-1.0 * tau_x)) / tau_x
 
 
+# constant factors in the equation to convert power to amplitude of
+# the profile.
+drude_intensity_amplitude_factor = (
+    (2 * units.intensity_power * units.wavelength / (constants.c * np.pi))
+    .to(units.intensity)
+    .value
+)
+
+
 class PowerDrude1D(Fittable1DModel):
     """
     Drude profile with amplitude determined by power.
@@ -178,15 +195,9 @@ class PowerDrude1D(Fittable1DModel):
     x_0 = Parameter(min=0.0)
     fwhm = Parameter(default=1, min=0.0)
 
-    # constant factors in the equation to convert power to amplitude of
-    # the profile.
-    intensity_amplitude_factor = (
-        (2 * units.intensity_power * units.wavelength / (constants.c * np.pi))
-        .to(units.intensity)
-        .value
-    )
-
-    def evaluate(self, x, power, x_0, fwhm):
+    @staticmethod
+    # @jit
+    def evaluate(x, power, x_0, fwhm):
         """
         Smith, et al. (2007) dust features model. Calculation is for a
         Drude profile (equation in section 4.1.4).
@@ -229,8 +240,8 @@ class PowerDrude1D(Fittable1DModel):
         # factor = (2 * unit(power) * unit(wavelength) / (pi * c)).to(unit(intensity))
 
         g = fwhm / x_0
-        b = power * x_0 / g * self.intensity_amplitude_factor
-        return b * g**2 / ((x / x_0 - x_0 / x) ** 2 + g**2)
+        b = power * x_0 / g * drude_intensity_amplitude_factor
+        return drude(x, x_0, g, b)
 
 
 class PowerGaussian1D(Fittable1DModel):
