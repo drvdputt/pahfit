@@ -21,14 +21,20 @@ class BlackBody1D(Fittable1DModel):
     temperature = Parameter()
 
     @staticmethod
-    def evaluate(x, amplitude, temperature):
+    def evaluate_not_normalized(x, amplitude, temperature):
         """ """
         return (
             amplitude
             * 3.9728917e13 # 2 h c/µm^3 -> MJy
-            / x**3 
+            / x**3
             / (np.exp(1.4387752e4 / x / temperature) - 1.0)  # h c/micron k K
         )
+
+    @staticmethod
+    def evaluate(x, amplitude, temperature):
+        """ """
+        norm = 1e-9
+        return norm * BlackBody1D.evaluate_not_normalized(x, amplitude, temperature)
 
 
 class ModifiedBlackBody1D(BlackBody1D):
@@ -38,7 +44,9 @@ class ModifiedBlackBody1D(BlackBody1D):
 
     @staticmethod
     def evaluate(x, amplitude, temperature):
-        return BlackBody1D.evaluate(x, amplitude, temperature) * ((9.7 / x) ** 2)
+        norm = (temperature / 50)**-8
+        bb = BlackBody1D.evaluate_not_normalized(x, amplitude, temperature)
+        return norm * bb * ((9.7 / x) ** 2)
 
 
 class S07_attenuation(Fittable1DModel):
