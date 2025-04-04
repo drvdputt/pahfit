@@ -10,7 +10,7 @@ from numba import jit
 __all__ = ["BlackBody1D", "ModifiedBlackBody1D", "S07_attenuation", "att_Drude1D"]
 
 
-@jit
+@jit(fastmath=True)
 def bb(x, amplitude, temperature):
     return (
         amplitude
@@ -20,7 +20,7 @@ def bb(x, amplitude, temperature):
     )
 
 
-@jit
+@jit(fastmath=True)
 def drude(x, x_0, g, b):
     g2 = g**2
     return b * g2 / ((x / x_0 - x_0 / x) ** 2 + g2)
@@ -38,7 +38,7 @@ class BlackBody1D(Fittable1DModel):
     temperature = Parameter()
 
     @staticmethod
-    # @jit
+    @jit(fastmath=True)
     def evaluate(x, amplitude, temperature):
         """ """
         norm = 1e-9
@@ -51,7 +51,7 @@ class ModifiedBlackBody1D(BlackBody1D):
     """
 
     @staticmethod
-    # @jit
+    @jit(fastmath=True)
     def evaluate(x, amplitude, temperature):
         norm = (temperature / 50) ** -8
         return norm * bb(x, amplitude, temperature) * ((9.7 / x) ** 2)
@@ -157,7 +157,7 @@ class att_Drude1D(Fittable1DModel):
 
 # constant factors in the equation to convert power to amplitude of
 # the profile.
-drude_intensity_amplitude_factor = (
+drude_intensity_amplitude_factor = float(
     (2 * units.intensity_power * units.wavelength / (constants.c * np.pi))
     .to(units.intensity)
     .value
@@ -196,7 +196,7 @@ class PowerDrude1D(Fittable1DModel):
     fwhm = Parameter(default=1, min=0.0)
 
     @staticmethod
-    # @jit
+    @jit(fastmath=True)
     def evaluate(x, power, x_0, fwhm):
         """
         Smith, et al. (2007) dust features model. Calculation is for a
@@ -241,7 +241,8 @@ class PowerDrude1D(Fittable1DModel):
 
         g = fwhm / x_0
         b = power * x_0 / g * drude_intensity_amplitude_factor
-        return drude(x, x_0, g, b)
+        g2 = g**2
+        return b * g2 / (np.square(x / x_0 - x_0 / x) + g2)
 
 
 class PowerGaussian1D(Fittable1DModel):
